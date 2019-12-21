@@ -9,23 +9,17 @@ class LayerLocation(ABC):
     @abstractmethod
     def layer_values(self, model, inputs):
         """
-        Get a 2-D Tensor of values of the activation.
+        Get a Tensor of activation values at the location.
 
-        The outer dimension of the result may be a
-        multiple of the input batch, since activations may
-        be repeated across some spatial or temporal
-        dimension.
+        It is assumed that the second dimension of the
+        result is the channel dimension, and all other
+        dimensions are spatial or temporal.
 
         Args:
             model: the relevant module to extract the
               activations for.
             inputs: the input batch, which should be fed
               into the model.
-
-        Returns:
-            An [N x C] Tensor, where N is any value, but
-              typically a multiple of the input batch
-              size, and C is the number of channels.
         """
         pass
 
@@ -53,13 +47,7 @@ class SequentialLayerLocation(LayerLocation):
         self.layer_idx = layer_idx
 
     def layer_values(self, model, inputs):
-        result = model[:self.layer_idx + 1](inputs)
-        if len(result.shape) > 2:
-            # Combine spatial dimensions.
-            result = result.view(result.shape[0], result.shape[1], -1)
-            result = result.permute(0, 2, 1)
-            result = result.view(-1, result.shape[2])
-        return result
+        return model[:self.layer_idx + 1](inputs)
 
     def get_module(self, model):
         return model[self.layer_idx]

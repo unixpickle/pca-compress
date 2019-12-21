@@ -10,15 +10,14 @@ def project_module(model, location, batches, dim):
     """
     with torch.no_grad():
         mean, cov = activation_stats(model, location, batches)
-        basis, sigmas = torch.svd(cov)
+        basis, sigmas, _ = torch.svd(cov)
         indexed_sigmas = enumerate(sigmas.detach().cpu().numpy())
         sorted_sigmas = sorted(indexed_sigmas, key=lambda x: x[1], reverse=True)
         major_indices = [x[0] for x in sorted_sigmas[:dim]]
         major_basis = basis[major_indices]
-
-        old_module = location.get_module(model)
-        new_module = wrap_module_projection(old_module, major_basis, mean)
-        location.set_module(model, new_module)
+    old_module = location.get_module(model)
+    new_module = wrap_module_projection(old_module, major_basis, mean)
+    location.set_module(model, new_module)
 
 
 def activation_stats(model, location, batches):
@@ -35,6 +34,11 @@ def activation_stats(model, location, batches):
     with torch.no_grad():
         for batch in batches:
             outputs = location.layer_values(model, batch)
+            if len(outputs.shape) > 2:
+                # Combine spatio-temporal dimensions.
+                outputs = outputs.view(outputs.shape[0], outputs.shape[1], -1)
+                outputs = outputs.permute(0, 2, 1).contiguous()
+                outputs = outputs.view(-1, outputs.shape[2])
             outer = torch.matmul(outputs.permute(1, 0), outputs)
             total_count += outputs.shape[0]
             if output_sum is None:
