@@ -10,21 +10,7 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 
-from pca_compress import LayerLocation, project_module
-
-
-class Location(LayerLocation):
-    def __init__(self, name):
-        self.name = name
-
-    def layer_values(self, model, x):
-        return model.forward(x, layer=self.name)
-
-    def get_module(self, model):
-        return getattr(model, self.name)
-
-    def set_module(self, model, module):
-        setattr(model, self.name, module)
+from pca_compress import AttributeLayerLocation, project_module
 
 
 class Net(nn.Module):
@@ -138,7 +124,7 @@ def main():
 
     model = Net().to(device)
 
-    locations = [Location('conv1'), Location('conv2'), Location('fc1')]
+    locations = [AttributeLayerLocation(x) for x in ['conv1', 'conv2', 'fc1']]
     dims = [8, 64, 128]
     for location, dim in zip(locations, dims):
         print('Projecting layer ' + location.name + '...')

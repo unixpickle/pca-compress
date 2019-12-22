@@ -6,7 +6,7 @@ class LayerLocation(ABC):
     A LayerLocation represents a position in a network
     where activation values can be captured.
     """
-    @abstractmethod
+
     def layer_values(self, model, inputs):
         """
         Get a Tensor of activation values at the location.
@@ -21,7 +21,21 @@ class LayerLocation(ABC):
             inputs: the input batch, which should be fed
               into the model.
         """
-        pass
+        module = self.get_module(model)
+        backup = module.forward
+
+        def new_forward(*x, **y):
+            output = backup(*x, **y)
+            raise _CaptureException(output)
+
+        module.forward = new_forward
+
+        try:
+            model.forward(inputs)
+        except _CaptureException as exc:
+            return exc.value
+        finally:
+            module.forward = backup
 
     @abstractmethod
     def get_module(self, model):
@@ -46,11 +60,32 @@ class SequentialLayerLocation(LayerLocation):
     def __init__(self, layer_idx):
         self.layer_idx = layer_idx
 
-    def layer_values(self, model, inputs):
-        return model[:self.layer_idx + 1](inputs)
-
     def get_module(self, model):
         return model[self.layer_idx]
 
     def set_module(self, model, module):
         model[self.layer_idx] = module
+
+
+class AttributeLayerLocation(LayerLocation):
+    def __init__(self, name):
+        self.name = name
+
+    def get_module(self, model):
+        for x in self._path():
+            model = getattr(model, x)
+        return model
+
+    def set_module(self, model, m):
+        path = self._path()
+        for x in path[:-1]:
+            model = getattr(model, x)
+        setattr(model, path[-1], m)
+
+    def _path(self):
+        return self.name.split('.')
+
+
+class _CaptureException(BaseException):
+    def __init__(self, value):
+        self.value = value
