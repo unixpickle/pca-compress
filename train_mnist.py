@@ -145,7 +145,8 @@ def main():
 
         def get_batches():
             for x, _ in train_loader:
-                yield x
+                yield x.to(device)
+
         project_module(model, location, get_batches(), dim)
 
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
