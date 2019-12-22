@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+import torch.nn as nn
+
 
 class LayerLocation(ABC):
     """
@@ -70,6 +72,16 @@ class SequentialLayerLocation(LayerLocation):
 class AttributeLayerLocation(LayerLocation):
     def __init__(self, name):
         self.name = name
+
+    @classmethod
+    def module_locations(cls, module, module_cls=nn.Conv2d):
+        res = []
+        for name, sub_module in module.named_modules():
+            if not name:
+                continue
+            if isinstance(sub_module, module_cls):
+                res.append(cls(name))
+        return res
 
     def get_module(self, model):
         for x in self._path():
