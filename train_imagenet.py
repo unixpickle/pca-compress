@@ -128,8 +128,8 @@ def main_worker(args):
         print('Reducing dimensionality of layer: %s ...' % location.name)
 
         def load_data():
-            for i, (img, _) in enumerate(train_loader):
-                yield img.cuda()
+            for i, (img, target) in enumerate(train_loader):
+                yield img.cuda(), target.cuda()
                 if i == STATISTICS_BATCHES:
                     break
         dim = location.get_module(model).weight.shape[0]

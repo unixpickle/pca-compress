@@ -125,15 +125,15 @@ def main():
     model = Net().to(device)
 
     locations = [AttributeLayerLocation(x) for x in ['conv1', 'conv2', 'fc1']]
-    dims = [8, 64, 128]
+    dims = [8, 32, 64]
     for location, dim in zip(locations, dims):
         print('Projecting layer ' + location.name + '...')
 
         def get_batches():
-            for x, _ in train_loader:
-                yield x.to(device)
+            for x, y in train_loader:
+                yield x.to(device), y.to(device)
 
-        project_module(model, location, get_batches(), dim)
+        project_module(model, location, get_batches(), dim, loss_fn=F.nll_loss)
 
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 

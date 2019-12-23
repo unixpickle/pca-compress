@@ -39,6 +39,35 @@ class LayerLocation(ABC):
         finally:
             module.forward = backup
 
+    def forward(self, model, inputs):
+        """
+        Like layer_values, but also returns the final
+        outputs of the model.
+
+        This may take longer than layer_values(), since a
+        full forward pass will always be performed.
+
+        Returns:
+            A tuple (outputs, activations).
+        """
+        module = self.get_module(model)
+        backup = module.forward
+
+        output_activations = [None]
+
+        def new_forward(*x, **y):
+            output_activations[0] = backup(*x, **y)
+            return output_activations[0]
+
+        module.forward = new_forward
+
+        try:
+            result = model.forward(inputs)
+        finally:
+            module.forward = backup
+
+        return result, output_activations[0]
+
     @abstractmethod
     def get_module(self, model):
         """
