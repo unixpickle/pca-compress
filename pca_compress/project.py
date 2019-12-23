@@ -3,7 +3,7 @@ import torch
 from .modules import wrap_module_projection
 
 
-def project_module(model, location, batches, dim, loss_fn=None):
+def project_module(model, location, batches, dim, loss_fn=None, greedy=False):
     """
     Replace the module at the given location with a
     projected version of the layer.
@@ -20,13 +20,23 @@ def project_module(model, location, batches, dim, loss_fn=None):
         loss_fn: if specified, the gradient of this loss
           function is used to cause the projection to
           affect the output as little as possible.
+        greedy: if True and loss_fn is specified, then
+          prune the directions which have the greatest
+          positive impact on making the loss higher.
     """
     if loss_fn is None:
+        if greedy:
+            raise ValueError('cannot specify greedy=True with loss_fn=None')
         mean, cov = activation_stats(model, location, batches)
     else:
-        mean, cov = activation_grad_stats(model, location, batches, loss_fn)
+        mean, cov, aj = activation_grad_stats(model, location, batches, loss_fn)
     with torch.no_grad():
         basis, sigmas, _ = torch.svd(cov)
+        if greedy:
+            # Use a linear approximation of the loss
+            # function to figure out how much each
+            # projection will increase the loss.
+            sigmas = -torch.sum(basis * torch.matmul(aj, basis), dim=0)
         basis = basis.permute(1, 0).contiguous()
         indexed_sigmas = enumerate(sigmas.detach().cpu().numpy())
         sorted_sigmas = sorted(indexed_sigmas, key=lambda x: x[1], reverse=True)
@@ -72,7 +82,7 @@ def activation_grad_stats(model, location, batches, loss_fn):
     gradient of the loss for every activation A.
 
     Returns:
-        A tuple (mean, prod).
+        A tuple (mean, prod, aj), where aj is (A-m)'*J.
     """
     total_count = 0
     activ_sum = None
@@ -96,9 +106,9 @@ def activation_grad_stats(model, location, batches, loss_fn):
             outer_sum += outer
     mean = activ_sum / float(total_count)
     mean_prod = torch.matmul(activ_sum[:, None], grad_sum[None]) / float(total_count ** 2)
-    cov = outer_sum / float(total_count) - mean_prod
-    cov = cov + cov.permute(1, 0).contiguous()
-    return mean, cov
+    aj = outer_sum / float(total_count) - mean_prod
+    cov = aj + aj.permute(1, 0).contiguous()
+    return mean, cov, aj
 
 
 def _combine_spatio_temporal(outputs):
