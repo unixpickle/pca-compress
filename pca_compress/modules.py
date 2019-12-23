@@ -28,7 +28,10 @@ class Linear(nn.Module):
         #
         with torch.no_grad():
             w = torch.matmul(basis, wrapped.weight)
-            b = wrapped.bias - mean
+            if wrapped.bias is None:
+                b = -mean
+            else:
+                b = wrapped.bias - mean
             b = torch.matmul(basis, b[:, None]).view(-1)
         self.register_buffer('basis', basis)
         self.register_buffer('mean', mean)
@@ -46,7 +49,10 @@ class Conv2d(nn.Module):
         super().__init__()
         with torch.no_grad():
             w = torch.matmul(basis, wrapped.weight.view(wrapped.weight.shape[0], -1))
-            b = wrapped.bias - mean
+            if wrapped.bias is None:
+                b = -mean
+            else:
+                b = wrapped.bias - mean
             b = torch.matmul(basis, b[:, None]).view(-1)
         self.register_buffer('basis', basis)
         self.register_buffer('mean', mean)

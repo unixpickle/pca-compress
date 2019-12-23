@@ -134,7 +134,7 @@ def main_worker(gpu, ngpus_per_node, args):
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
-    for location in AttributeLayerLocation.all_locations(model):
+    for location in AttributeLayerLocation.module_locations(model):
         print('Reducing dimensionality of layer: %s ...' % location.name)
 
         def load_data():
