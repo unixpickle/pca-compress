@@ -27,6 +27,7 @@ def project_module(model, location, batches, dim, loss_fn=None):
         mean, cov = activation_grad_stats(model, location, batches, loss_fn)
     with torch.no_grad():
         basis, sigmas, _ = torch.svd(cov)
+        basis = basis.permute(1, 0).contiguous()
         indexed_sigmas = enumerate(sigmas.detach().cpu().numpy())
         sorted_sigmas = sorted(indexed_sigmas, key=lambda x: x[1], reverse=True)
         major_indices = [x[0] for x in sorted_sigmas[:dim]]
