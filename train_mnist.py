@@ -10,7 +10,7 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 
-from pca_compress import AttributeLayerLocation, project_module
+from pca_compress import AttributeLayerLocation, project_module, wrap_module_baseline
 
 
 class Net(nn.Module):
@@ -97,6 +97,8 @@ def main():
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging training status')
+    parser.add_argument('--baseline', action='store_true', default=False,
+                        help='use a baseline instead of PCA compression')
 
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
@@ -128,12 +130,15 @@ def main():
     dims = [8, 32, 64]
     for location, dim in zip(locations, dims):
         print('Projecting layer ' + location.name + '...')
-
-        def get_batches():
-            for x, y in train_loader:
-                yield x.to(device), y.to(device)
-
-        project_module(model, location, get_batches(), dim, loss_fn=F.nll_loss)
+        if not args.baseline:
+            def get_batches():
+                for x, y in train_loader:
+                    yield x.to(device), y.to(device)
+            project_module(model, location, get_batches(), dim, loss_fn=F.nll_loss)
+        else:
+            module = location.get_module(model)
+            module = wrap_module_baseline(module, dim)
+            location.set_module(model, module)
 
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 

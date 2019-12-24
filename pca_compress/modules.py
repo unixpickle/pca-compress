@@ -11,6 +11,25 @@ def wrap_module_projection(module, basis, mean):
     raise TypeError('unsupported module type: ' + str(type(module)))
 
 
+def wrap_module_baseline(module, dim):
+    if isinstance(module, nn.Linear):
+        return nn.Sequential(
+            nn.Linear(module.in_features, dim),
+            nn.Linear(dim, module.out_features),
+        )
+    elif isinstance(module, nn.Conv2d):
+        return nn.Sequential(
+            nn.Conv2d(module.in_channels, dim,
+                      kernel_size=module.kernel_size,
+                      stride=module.stride,
+                      padding=module.padding,
+                      dilation=module.dilation,
+                      groups=module.groups),
+            nn.Conv2d(dim, module.out_channels, kernel_size=1),
+        )
+    raise TypeError('unsupported module type: ' + str(type(module)))
+
+
 class Linear(nn.Module):
     def __init__(self, wrapped, basis, mean):
         super().__init__()
