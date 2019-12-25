@@ -15,6 +15,7 @@ import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
+import torchvision
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
@@ -85,6 +86,13 @@ def main():
 
 def main_worker(args):
     global best_acc1
+
+    print('Attempting to set torchvision backend ...')
+    try:
+        import accimage  # noqa: F401
+        torchvision.set_image_backend('accimage')
+    except ModuleNotFoundError:
+        print(' - resorting to default torchvision image backend.')
 
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
