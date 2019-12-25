@@ -134,16 +134,18 @@ def main_worker(args):
 
     criterion = nn.CrossEntropyLoss().cuda()
 
-    for location in AttributeLayerLocation.module_locations(model):
-        print('Reducing dimensionality of layer: %s ...' % location.name)
+    if not args.resume:
+        for location in AttributeLayerLocation.module_locations(model):
+            print('Reducing dimensionality of layer: %s ...' % location.name)
 
-        def load_data():
-            for i, (img, target) in enumerate(train_loader):
-                yield img.cuda(), target.cuda()
-                if i == STATISTICS_BATCHES:
-                    break
-        dim = location.get_module(model).weight.shape[0]
-        project_module(model, location, load_data(), int(dim * DIM_REDUCTION), loss_fn=criterion)
+            def load_data():
+                for i, (img, target) in enumerate(train_loader):
+                    yield img.cuda(), target.cuda()
+                    if i == STATISTICS_BATCHES:
+                        break
+            dim = location.get_module(model).weight.shape[0]
+            project_module(model, location, load_data(), int(dim * DIM_REDUCTION),
+                           loss_fn=criterion)
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
