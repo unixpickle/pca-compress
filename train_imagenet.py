@@ -132,6 +132,8 @@ def main_worker(args):
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
+    criterion = nn.CrossEntropyLoss().cuda()
+
     for location in AttributeLayerLocation.module_locations(model):
         print('Reducing dimensionality of layer: %s ...' % location.name)
 
@@ -141,10 +143,7 @@ def main_worker(args):
                 if i == STATISTICS_BATCHES:
                     break
         dim = location.get_module(model).weight.shape[0]
-        project_module(model, location, load_data(), int(dim * DIM_REDUCTION))
-
-    # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda()
+        project_module(model, location, load_data(), int(dim * DIM_REDUCTION), loss_fn=criterion)
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
