@@ -3,11 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def wrap_module_projection(module, basis, mean):
+def wrap_module_projection(module, basis, mean, learnable=False):
     if isinstance(module, nn.Linear):
-        return Linear(module, basis, mean)
+        return Linear(module, basis, mean, learnable=learnable)
     elif isinstance(module, nn.Conv2d):
-        return Conv2d(module, basis, mean)
+        return Conv2d(module, basis, mean, learnable=learnable)
     raise TypeError('unsupported module type: ' + str(type(module)))
 
 
@@ -31,7 +31,7 @@ def wrap_module_baseline(module, dim):
 
 
 class Linear(nn.Module):
-    def __init__(self, wrapped, basis, mean):
+    def __init__(self, wrapped, basis, mean, learnable=False):
         super().__init__()
         # The original linear transformation is Wx + b.
         #
@@ -52,8 +52,12 @@ class Linear(nn.Module):
             else:
                 b = wrapped.bias - mean
             b = torch.matmul(basis, b[:, None]).view(-1)
-        self.register_buffer('basis', basis)
-        self.register_buffer('mean', mean)
+        if learnable:
+            self.basis = nn.Parameter(basis)
+            self.mean = nn.Parameter(mean)
+        else:
+            self.register_buffer('basis', basis)
+            self.register_buffer('mean', mean)
         self.weight = nn.Parameter(w)
         self.bias = nn.Parameter(b)
 
@@ -64,7 +68,7 @@ class Linear(nn.Module):
 
 
 class Conv2d(nn.Module):
-    def __init__(self, wrapped, basis, mean):
+    def __init__(self, wrapped, basis, mean, learnable=False):
         super().__init__()
         with torch.no_grad():
             w = torch.matmul(basis, wrapped.weight.view(wrapped.weight.shape[0], -1))
@@ -73,8 +77,12 @@ class Conv2d(nn.Module):
             else:
                 b = wrapped.bias - mean
             b = torch.matmul(basis, b[:, None]).view(-1)
-        self.register_buffer('basis', basis)
-        self.register_buffer('mean', mean)
+        if learnable:
+            self.basis = nn.Parameter(basis)
+            self.mean = nn.Parameter(mean)
+        else:
+            self.register_buffer('basis', basis)
+            self.register_buffer('mean', mean)
         self.weight = nn.Parameter(w.view(-1, *wrapped.weight.shape[1:]))
         self.bias = nn.Parameter(b)
 

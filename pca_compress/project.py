@@ -3,7 +3,7 @@ import torch
 from .modules import wrap_module_projection
 
 
-def project_module(model, location, batches, dim, loss_fn=None, greedy=False):
+def project_module(model, location, batches, dim, loss_fn=None, greedy=False, learnable=False):
     """
     Replace the module at the given location with a
     projected version of the layer.
@@ -23,6 +23,7 @@ def project_module(model, location, batches, dim, loss_fn=None, greedy=False):
         greedy: if True and loss_fn is specified, then
           prune the directions which have the greatest
           positive impact on making the loss higher.
+        learnable: if True, allow the basis to be learned.
     """
     if loss_fn is None:
         if greedy:
@@ -43,7 +44,7 @@ def project_module(model, location, batches, dim, loss_fn=None, greedy=False):
         major_indices = [x[0] for x in sorted_sigmas[:dim]]
         major_basis = basis[major_indices]
     old_module = location.get_module(model)
-    new_module = wrap_module_projection(old_module, major_basis, mean)
+    new_module = wrap_module_projection(old_module, major_basis, mean, learnable=learnable)
     location.set_module(model, new_module)
 
 
