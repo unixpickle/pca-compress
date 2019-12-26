@@ -43,7 +43,7 @@ class LayerLocation(ABC):
     where activation values can be captured.
     """
 
-    def layer_values(self, model, inputs):
+    def layer_values(self, model, inputs, before=False):
         """
         Get a Tensor of activation values at the location.
 
@@ -56,11 +56,15 @@ class LayerLocation(ABC):
               activations for.
             inputs: the input batch, which should be fed
               into the model.
+            before: if True, get the values before the
+              location's module, not after.
         """
         module = self.get_module(model)
         backup = module.forward
 
         def new_forward(*x, **y):
+            if before:
+                raise _CaptureException(x[0])
             output = backup(*x, **y)
             raise _CaptureException(output)
 
@@ -73,7 +77,7 @@ class LayerLocation(ABC):
         finally:
             module.forward = backup
 
-    def forward(self, model, inputs):
+    def forward(self, model, inputs, before=False):
         """
         Like layer_values, but also returns the final
         outputs of the model.
@@ -90,8 +94,12 @@ class LayerLocation(ABC):
         output_activations = [None]
 
         def new_forward(*x, **y):
-            output_activations[0] = backup(*x, **y)
-            return output_activations[0]
+            output = backup(*x, **y)
+            if before:
+                output_activations[0] = output
+            else:
+                output_activations[0] = x[0]
+            return output
 
         module.forward = new_forward
 
