@@ -12,8 +12,29 @@ def wrap_module_projection(module, basis, mean, before=False):
 
 def wrap_linear(module, basis, mean, before=False):
     if before:
-        raise NotImplementedError('wrapping linear before is not supported')
-    return wrap_linear_after(module, basis, mean)
+        return wrap_linear_before(module, basis, mean)
+    else:
+        return wrap_linear_after(module, basis, mean)
+
+
+def wrap_linear_before(module, basis, mean):
+    # f(x) = w*(basis'*(basis*(x - mean)) + mean) + b
+    #      = w*(basis'*(basis*x - basis*mean) + mean) + b
+    #      = (w*basis')*(basis*x - basis*mean) + w*mean + b
+    with torch.no_grad():
+        w1 = basis
+        b1 = -torch.matmul(basis, mean[:, None]).view(-1)
+        w2 = torch.matmul(module.weight, basis.permute(1, 0))
+        b2 = module(mean[None]).view(-1)
+    result = nn.Sequential(
+        nn.Linear(module.in_features, basis.shape[0]),
+        nn.Linear(basis.shape[0], module.out_features),
+    )
+    result[0].weight.detach().copy_(w1)
+    result[0].bias.detach().copy_(b1)
+    result[1].weight.detach().copy_(w2)
+    result[1].bias.detach().copy_(b2)
+    return result
 
 
 def wrap_linear_after(module, basis, mean):
@@ -39,6 +60,34 @@ def wrap_conv(module, basis, mean, before=False):
     if before:
         raise NotImplementedError('wrapping conv before is not supported')
     return wrap_conv_after(module, basis, mean)
+
+
+def wrap_conv_before(module, basis, mean):
+    if module.groups != 1:
+        raise NotImplementedError('grouped convolutions are not supported')
+    with torch.no_grad():
+        w1 = basis.view(basis.shape[0], -1, *module.kernel_size)
+        b1 = -torch.matmul(basis, mean[:, None]).view(-1)
+        w2 = torch.matmul(module.weight, basis.permute(1, 0)).view(
+            module.out_channels, -1, *module.kernel_size)
+        b2 = torch.matmul(module.weight.view(module.weight.shape[0], -1), mean[:, None]).view(-1)
+        if module.bias is not None:
+            b2 = b2 + module.bias
+    result = nn.Sequential(
+        nn.Conv2d(module.in_channels,
+                  basis.shape[0],
+                  module.kernel_size,
+                  stride=module.stride,
+                  padding=module.padding,
+                  dilation=module.dilation,
+                  padding_mode=module.padding_mode),
+        nn.Conv2d(basis.shape[0], module.out_channels, 1),
+    )
+    result[0].weight.detach().copy_(w1)
+    result[0].bias.detach().copy_(b1)
+    result[1].weight.detach().copy_(w2)
+    result[1].bias.detach().copy_(b2)
+    return result
 
 
 def wrap_conv_after(module, basis, mean):
