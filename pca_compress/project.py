@@ -1,9 +1,11 @@
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 from .modules import wrap_module_projection
 
 
-def project_module(model, location, batches, dim, loss_fn=None, greedy=False):
+def project_module(model, location, batches, dim, loss_fn=None, greedy=False, before=False):
     """
     Replace the module at the given location with a
     projected version of the layer.
@@ -23,13 +25,15 @@ def project_module(model, location, batches, dim, loss_fn=None, greedy=False):
         greedy: if True and loss_fn is specified, then
           prune the directions which have the greatest
           positive impact on making the loss higher.
+        before: if True, project the layer based on its
+          input statistics rather than output statistics.
     """
     if loss_fn is None:
         if greedy:
             raise ValueError('cannot specify greedy=True with loss_fn=None')
-        mean, cov = activation_stats(model, location, batches)
+        mean, cov = activation_stats(model, location, batches, before)
     else:
-        mean, cov, aj = activation_grad_stats(model, location, batches, loss_fn)
+        mean, cov, aj = activation_grad_stats(model, location, batches, loss_fn, before)
     with torch.no_grad():
         basis, sigmas, _ = torch.svd(cov)
         if greedy:
@@ -43,11 +47,11 @@ def project_module(model, location, batches, dim, loss_fn=None, greedy=False):
         major_indices = [x[0] for x in sorted_sigmas[:dim]]
         major_basis = basis[major_indices]
     old_module = location.get_module(model)
-    new_module = wrap_module_projection(old_module, major_basis, mean)
+    new_module = wrap_module_projection(old_module, major_basis, mean, before=before)
     location.set_module(model, new_module)
 
 
-def activation_stats(model, location, batches):
+def activation_stats(model, location, batches, before):
     """
     Gather the mean and covariance of activations in a
     model at a specific LayerLocation.
@@ -55,13 +59,14 @@ def activation_stats(model, location, batches):
     Returns:
         A tuple (mean, covariance).
     """
+    module = location.get_module(model)
     total_count = 0
     output_sum = None
     outer_sum = None
     with torch.no_grad():
         for batch, _ in batches:
-            outputs = location.layer_values(model, batch)
-            outputs = _combine_spatio_temporal(outputs)
+            outputs = location.layer_values(model, batch, before=before)
+            outputs = _combine_spatio_temporal(module, before, outputs)
             outer = torch.matmul(outputs.permute(1, 0), outputs)
             total_count += outputs.shape[0]
             if output_sum is None:
@@ -75,7 +80,7 @@ def activation_stats(model, location, batches):
     return mean, cov
 
 
-def activation_grad_stats(model, location, batches, loss_fn):
+def activation_grad_stats(model, location, batches, loss_fn, before):
     """
     Compute the mean of activations (m) and the inner
     product matrix ((A-m)'*J + J'*(A-m)), where J is the
@@ -84,17 +89,18 @@ def activation_grad_stats(model, location, batches, loss_fn):
     Returns:
         A tuple (mean, prod, aj), where aj is (A-m)'*J.
     """
+    module = location.get_module(model)
     total_count = 0
     activ_sum = None
     grad_sum = None
     outer_sum = None
     for batch_in, batch_out in batches:
-        outputs, activations = location.forward(model, batch_in)
+        outputs, activations = location.forward(model, batch_in, before=before)
         # Adjust loss scale to correct for batch size.
         loss = loss_fn(outputs, batch_out) * batch_in.shape[0]
         grads = torch.autograd.grad(loss, activations)[0]
-        activations = _combine_spatio_temporal(activations.detach())
-        grads = _combine_spatio_temporal(grads.detach())
+        activations = _combine_spatio_temporal(module, before, activations.detach())
+        grads = _combine_spatio_temporal(module, before, grads.detach())
         outer = torch.matmul(activations.permute(1, 0), grads)
         total_count += activations.shape[0]
         if activ_sum is None:
@@ -112,9 +118,21 @@ def activation_grad_stats(model, location, batches, loss_fn):
     return mean, cov, aj
 
 
-def _combine_spatio_temporal(outputs):
-    if len(outputs.shape) > 2:
+def _combine_spatio_temporal(module, before, outputs):
+    if len(outputs.shape) == 2:
+        return outputs
+    elif not before:
         outputs = outputs.view(outputs.shape[0], outputs.shape[1], -1)
         outputs = outputs.permute(0, 2, 1).contiguous()
         outputs = outputs.view(-1, outputs.shape[2])
-    return outputs
+        return outputs
+
+    if not isinstance(module, nn.Conv2d):
+        raise ValueError('cannot combine spatio-temporal dimensions before layer: ' +
+                         str(type(module)))
+    patches = F.unfold(outputs, module.kernel_size,
+                       dilation=module.dilation,
+                       padding=module.padding,
+                       stride=module.stride)
+    patches = patches.permute(0, 2, 1).contiguous().view(-1, patches.shape[1])
+    return patches

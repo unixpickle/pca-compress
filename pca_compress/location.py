@@ -95,7 +95,7 @@ class LayerLocation(ABC):
 
         def new_forward(*x, **y):
             if before and not x[0].requires_grad:
-                x[0] = x[0].clone().requires_grad_(True)
+                x = tuple(v.clone().requires_grad_(True) for v in x)
             output = backup(*x, **y)
             if before:
                 output_activations[0] = x[0]

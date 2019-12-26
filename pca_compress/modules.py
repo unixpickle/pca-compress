@@ -58,19 +58,20 @@ def wrap_linear_after(module, basis, mean):
 
 def wrap_conv(module, basis, mean, before=False):
     if before:
-        raise NotImplementedError('wrapping conv before is not supported')
-    return wrap_conv_after(module, basis, mean)
+        return wrap_conv_before(module, basis, mean)
+    else:
+        return wrap_conv_after(module, basis, mean)
 
 
 def wrap_conv_before(module, basis, mean):
     if module.groups != 1:
         raise NotImplementedError('grouped convolutions are not supported')
     with torch.no_grad():
+        w = module.weight.view(module.weight.shape[0], -1)
         w1 = basis.view(basis.shape[0], -1, *module.kernel_size)
         b1 = -torch.matmul(basis, mean[:, None]).view(-1)
-        w2 = torch.matmul(module.weight, basis.permute(1, 0)).view(
-            module.out_channels, -1, *module.kernel_size)
-        b2 = torch.matmul(module.weight.view(module.weight.shape[0], -1), mean[:, None]).view(-1)
+        w2 = torch.matmul(w, basis.permute(1, 0)).view(module.out_channels, -1, 1, 1)
+        b2 = torch.matmul(w, mean[:, None]).view(-1)
         if module.bias is not None:
             b2 = b2 + module.bias
     result = nn.Sequential(
