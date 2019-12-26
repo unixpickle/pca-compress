@@ -3,6 +3,40 @@ from abc import ABC, abstractmethod
 import torch.nn as nn
 
 
+def sorted_locations(locations, model, inputs):
+    """
+    Returns a sorted list of locations from first to last
+    in the forward pass of the model.
+
+    Args:
+        locations: an unsorted sequence of locations.
+        model: an nn.Module.
+        inputs: an input batch to feed to the model to
+          detect the ordering.
+    """
+    backups = []
+    sorted_locs = []
+    for loc in locations:
+        module = loc.get_module(model)
+        b = module.forward
+        backups.append(b)
+
+        # Capture variables loc and b.
+        def replace_forward(loc=loc, b=b):
+            def new_forward(*x, **y):
+                if loc not in sorted_locs:
+                    sorted_locs.append(loc)
+                return b(*x, **y)
+            module.forward = new_forward
+        replace_forward()
+
+    try:
+        model(inputs)
+    finally:
+        for loc, b in zip(locations, backups):
+            loc.get_module(model).forward = b
+
+
 class LayerLocation(ABC):
     """
     A LayerLocation represents a position in a network
