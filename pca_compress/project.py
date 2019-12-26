@@ -91,7 +91,8 @@ def activation_grad_stats(model, location, batches, loss_fn):
     outer_sum = None
     for batch_in, batch_out in batches:
         outputs, activations = location.forward(model, batch_in)
-        loss = loss_fn(outputs, batch_out)
+        # Adjust loss scale to correct for batch size.
+        loss = loss_fn(outputs, batch_out) * batch_in.shape[0]
         grads = torch.autograd.grad(loss, activations)[0]
         activations = _combine_spatio_temporal(activations.detach())
         grads = _combine_spatio_temporal(grads.detach())
