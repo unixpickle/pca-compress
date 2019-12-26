@@ -1,14 +1,78 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
-def wrap_module_projection(module, basis, mean, learnable=False):
+def wrap_module_projection(module, basis, mean, before=False):
     if isinstance(module, nn.Linear):
-        return Linear(module, basis, mean, learnable=learnable)
+        return wrap_linear(module, basis, mean, before=before)
     elif isinstance(module, nn.Conv2d):
-        return Conv2d(module, basis, mean, learnable=learnable)
+        return wrap_conv(module, basis, mean, before=before)
     raise TypeError('unsupported module type: ' + str(type(module)))
+
+
+def wrap_linear(module, basis, mean, before=False):
+    if before:
+        raise NotImplementedError('wrapping linear before is not supported')
+    return wrap_linear_after(module, basis, mean)
+
+
+def wrap_linear_after(module, basis, mean):
+    with torch.no_grad():
+        w = torch.matmul(basis, module.weight)
+        if module.bias is None:
+            b = -mean
+        else:
+            b = module.bias - mean
+        b = torch.matmul(basis, b[:, None]).view(-1)
+    result = nn.Sequential(
+        nn.Linear(module.in_features, basis.shape[0]),
+        nn.Linear(basis.shape[0], module.out_features),
+    )
+    result[0].weight.detach().copy_(w)
+    result[0].bias.detach().copy_(b)
+    result[1].weight.detach().copy_(basis.permute(1, 0))
+    result[1].bias.detach().copy_(mean)
+    return result
+
+
+def wrap_conv(module, basis, mean, before=False):
+    if before:
+        raise NotImplementedError('wrapping conv before is not supported')
+    return wrap_conv_after(module, basis, mean)
+
+
+def wrap_conv_after(module, basis, mean):
+    if module.groups != 1:
+        raise NotImplementedError('grouped convolutions are not supported')
+    with torch.no_grad():
+        w = torch.matmul(basis, module.weight.view(module.weight.shape[0], -1))
+        w = w.view(-1, *module.weight.shape[1:])
+        if module.bias is None:
+            b = -mean
+        else:
+            b = module.bias - mean
+        b = torch.matmul(basis, b[:, None]).view(-1)
+    result = nn.Sequential(
+        nn.Conv2d(
+            module.in_channels,
+            basis.shape[0],
+            module.kernel_size,
+            stride=module.stride,
+            padding=module.padding,
+            dilation=module.dilation,
+            padding_mode=module.padding_mode,
+        ),
+        nn.Conv2d(
+            basis.shape[0],
+            module.out_channels,
+            1,
+        ),
+    )
+    result[0].weight.detach().copy_(w)
+    result[0].bias.detach().copy_(b)
+    result[1].weight.detach().copy_(basis.permute(1, 0)[:, :, None, None])
+    result[1].bias.detach().copy_(mean)
+    return result
 
 
 def wrap_module_baseline(module, dim):
@@ -28,78 +92,3 @@ def wrap_module_baseline(module, dim):
             nn.Conv2d(dim, module.out_channels, kernel_size=1),
         )
     raise TypeError('unsupported module type: ' + str(type(module)))
-
-
-class Linear(nn.Module):
-    def __init__(self, wrapped, basis, mean, learnable=False):
-        super().__init__()
-        # The original linear transformation is Wx + b.
-        #
-        # We then do dimensionality reduction:
-        #     ((x*W' + b) - m)*P'.
-        #
-        # To get back to the original basis, we multiply on the
-        # right by the matrix P.
-        #
-        # The new linear transformation becomes:
-        #
-        #     x*W'*P'*P + (b - m)*P'*P + m
-        #
-        with torch.no_grad():
-            w = torch.matmul(basis, wrapped.weight)
-            if wrapped.bias is None:
-                b = -mean
-            else:
-                b = wrapped.bias - mean
-            b = torch.matmul(basis, b[:, None]).view(-1)
-        if learnable:
-            self.basis = nn.Parameter(basis)
-            self.mean = nn.Parameter(mean)
-        else:
-            self.register_buffer('basis', basis)
-            self.register_buffer('mean', mean)
-        self.weight = nn.Parameter(w)
-        self.bias = nn.Parameter(b)
-
-    def forward(self, x):
-        result = F.linear(x, self.weight, self.bias)
-        result = torch.matmul(result, self.basis)
-        return result + self.mean
-
-
-class Conv2d(nn.Module):
-    def __init__(self, wrapped, basis, mean, learnable=False):
-        super().__init__()
-        with torch.no_grad():
-            w = torch.matmul(basis, wrapped.weight.view(wrapped.weight.shape[0], -1))
-            if wrapped.bias is None:
-                b = -mean
-            else:
-                b = wrapped.bias - mean
-            b = torch.matmul(basis, b[:, None]).view(-1)
-        if learnable:
-            self.basis = nn.Parameter(basis)
-            self.mean = nn.Parameter(mean)
-        else:
-            self.register_buffer('basis', basis)
-            self.register_buffer('mean', mean)
-        self.weight = nn.Parameter(w.view(-1, *wrapped.weight.shape[1:]))
-        self.bias = nn.Parameter(b)
-
-        self.stride = wrapped.stride
-        self.padding = wrapped.padding
-        self.dilation = wrapped.dilation
-        self.groups = wrapped.groups
-
-    def forward(self, x):
-        result = F.conv2d(x, self.weight,
-                          bias=self.bias,
-                          stride=self.stride,
-                          padding=self.padding,
-                          dilation=self.dilation,
-                          groups=self.groups)
-        final_shape = (result.shape[0],) + result.shape[2:] + (self.basis.shape[1],)
-        result = result.permute(0, 2, 3, 1).contiguous().view(-1, result.shape[1])
-        result = torch.matmul(result, self.basis)
-        result = result.view(final_shape).permute(0, 3, 1, 2).contiguous()
-        return result + self.mean[None, :, None, None]

@@ -94,11 +94,13 @@ class LayerLocation(ABC):
         output_activations = [None]
 
         def new_forward(*x, **y):
+            if before and not x[0].requires_grad:
+                x[0] = x[0].clone().requires_grad_(True)
             output = backup(*x, **y)
             if before:
-                output_activations[0] = output
-            else:
                 output_activations[0] = x[0]
+            else:
+                output_activations[0] = output
             return output
 
         module.forward = new_forward
