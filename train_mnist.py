@@ -125,20 +125,34 @@ def main():
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
     model = Net().to(device)
+    model.load_state_dict(torch.load('model_cnn.pt', map_location='cpu'))
 
     locations = [AttributeLayerLocation(x) for x in ['conv1', 'conv2', 'fc1']]
+    cur_dims = [loc.get_module(model).weight.shape[0] for loc in locations]
     dims = [8, 32, 64]
-    for location, dim in zip(locations, dims):
-        print('Projecting layer ' + location.name + '...')
-        if not args.baseline:
-            def get_batches():
-                for x, y in train_loader:
-                    yield x.to(device), y.to(device)
-            project_module(model, location, get_batches(), dim, loss_fn=F.nll_loss)
-        else:
-            module = location.get_module(model)
-            module = wrap_module_baseline(module, dim)
-            location.set_module(model, module)
+    while any(cd > d for cd, d in zip(cur_dims, dims)):
+        for i, (location, dim, cur_dim) in enumerate(zip(locations, dims, cur_dims)):
+            if cur_dim == dim:
+                continue
+            cur_dims[i] = max(dim, cur_dim - 1)
+            print('Projecting layer %d' % i)
+            if not args.baseline:
+                def get_batches():
+                    for i, (x, y) in enumerate(train_loader):
+                        yield x.to(device), y.to(device)
+                        if i == 50:
+                            break
+                loc = project_module(model, location, get_batches(), cur_dim, loss_fn=F.nll_loss)
+                locations[i] = loc
+            else:
+                module = location.get_module(model)
+                # One step projection for baseline.
+                module = wrap_module_baseline(module, dim)
+                location.set_module(model, module)
+
+    print('Testing...')
+    test(args, model, device, test_loader)
+    return
 
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 
