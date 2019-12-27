@@ -1,6 +1,52 @@
 import torch
 import torch.nn as nn
 
+from .location import NestedLocation, SequentialLayerLocation
+
+
+def inject_module(location, model, module):
+    next_location = location.next_location(model)
+    if not isinstance(module, nn.Sequential) or len(module) != 2 or module[1].bias is None:
+        location.set_module(model, module)
+        return location
+    elif next_location is None:
+        location.set_module(model, module)
+        return NestedLocation(location, SequentialLayerLocation(0))
+    next_module = next_location.get_module(model)
+    if _is_1x1_conv(next_module) and _is_1x1_conv(module[1]):
+        w1 = module[1].weight.view(module[1].weight.shape[0], -1)
+        w2 = next_module.weight.view(next_module.weight.shape[0], -1)
+        new_w = torch.matmul(w2, w1).view(w2.shape[0], 1, 1, -1)
+        bias = torch.matmul(w2, module[1].bias[:, None]).view(-1)
+        if next_module.bias is not None:
+            bias += next_module.bias
+        new_conv = nn.Conv2d(new_w.shape[1], new_w.shape[0], 1).to(w1.device)
+        new_conv.weight.detach().copy_(new_w)
+        new_conv.bias.detach().copy_(bias)
+        location.set_module(model, module[0])
+        next_location.set_module(model, new_conv)
+        return location
+    elif isinstance(next_module, nn.Linear) and isinstance(module[1], nn.Linear):
+        w1 = module[1].weight
+        w2 = next_module.weight
+        new_w = torch.matmul(w2, w1)
+        bias = torch.matmul(w2, module[1].bias[:, None]).view(-1)
+        if next_module.bias is not None:
+            bias += next_module.bias
+        new_linear = nn.Linear(new_w.shape[1], new_w.shape[0]).to(w1.device)
+        new_linear.weight.detach().copy_(new_w)
+        new_linear.bias.detach().copy_(bias)
+        location.set_module(model, module[0])
+        next_location.set_module(model, new_linear)
+        return location
+    else:
+        location.set_module(model, module)
+        return NestedLocation(location, SequentialLayerLocation(0))
+
+
+def _is_1x1_conv(module):
+    return isinstance(module, nn.Conv2d) and module.kernel_size == (1, 1) and module.stride == 1
+
 
 def wrap_module_projection(module, basis, mean, before=False):
     if isinstance(module, nn.Linear):

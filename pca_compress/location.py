@@ -138,6 +138,39 @@ class LayerLocation(ABC):
         """
         pass
 
+    @abstractmethod
+    def next_location(self, model):
+        """
+        Get the location that immediately follows this one
+        in a sequential kind of layer.
+
+        This may return None if no such location is known.
+        """
+        pass
+
+
+class NestedLocation(LayerLocation):
+    def __init__(self, *locs):
+        self.locs = locs
+
+    def get_module(self, model):
+        for loc in self.locs:
+            model = loc.get_module(model)
+        return model
+
+    def set_module(self, model, module):
+        for loc in self.locs[:-1]:
+            model = loc.get_module(model)
+        self.locs[-1].set_module(model, module)
+
+    def next_location(self, model):
+        for loc in self.locs[:-1]:
+            model = loc.get_module(model)
+        loc = self.locs[-1].next_location(model)
+        if loc is None:
+            return None
+        return NestedLocation(*self.locs[:-1], loc)
+
 
 class SequentialLayerLocation(LayerLocation):
     def __init__(self, layer_idx):
@@ -148,6 +181,11 @@ class SequentialLayerLocation(LayerLocation):
 
     def set_module(self, model, module):
         model[self.layer_idx] = module
+
+    def next_location(self, model):
+        if self.layer_idx + 1 == len(model):
+            return None
+        return SequentialLayerLocation(self.layer_idx + 1)
 
 
 class AttributeLayerLocation(LayerLocation):
@@ -174,6 +212,18 @@ class AttributeLayerLocation(LayerLocation):
         for x in path[:-1]:
             model = getattr(model, x)
         setattr(model, path[-1], m)
+
+    def next_location(self, model):
+        path = self._path()
+        parent = model
+        for x in path[:-1]:
+            parent = getattr(parent, x)
+        if not isinstance(parent, nn.Sequential):
+            return None
+        idx = int(path[-1])
+        if idx + 1 == len(parent):
+            return None
+        return AttributeLayerLocation((path[:-1] + [str(idx+1)]).join('.'))
 
     def _path(self):
         return self.name.split('.')

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .modules import wrap_module_projection
+from .modules import inject_module, wrap_module_projection
 
 
 def project_module(model, location, batches, dim, loss_fn=None, greedy=False, before=False):
@@ -27,6 +27,11 @@ def project_module(model, location, batches, dim, loss_fn=None, greedy=False, be
           positive impact on making the loss higher.
         before: if True, project the layer based on its
           input statistics rather than output statistics.
+
+    Returns:
+        A new location for the replaced module, for
+          example pointing to the new nn.Conv2d.
+        This location may be nested inside of the old one.
     """
     if loss_fn is None:
         if greedy:
@@ -48,7 +53,7 @@ def project_module(model, location, batches, dim, loss_fn=None, greedy=False, be
         major_basis = basis[major_indices]
     old_module = location.get_module(model)
     new_module = wrap_module_projection(old_module, major_basis, mean, before=before)
-    location.set_module(model, new_module)
+    return inject_module(location, model, new_module)
 
 
 def activation_stats(model, location, batches, before):
