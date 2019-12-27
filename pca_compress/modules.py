@@ -30,6 +30,7 @@ def wrap_linear_before(module, basis, mean):
         nn.Linear(module.in_features, basis.shape[0]),
         nn.Linear(basis.shape[0], module.out_features),
     )
+    result = result.to(module.weight.device)
     result[0].weight.detach().copy_(w1)
     result[0].bias.detach().copy_(b1)
     result[1].weight.detach().copy_(w2)
@@ -49,6 +50,7 @@ def wrap_linear_after(module, basis, mean):
         nn.Linear(module.in_features, basis.shape[0]),
         nn.Linear(basis.shape[0], module.out_features),
     )
+    result = result.to(module.weight.device)
     result[0].weight.detach().copy_(w)
     result[0].bias.detach().copy_(b)
     result[1].weight.detach().copy_(basis.permute(1, 0))
@@ -84,6 +86,7 @@ def wrap_conv_before(module, basis, mean):
                   padding_mode=module.padding_mode),
         nn.Conv2d(basis.shape[0], module.out_channels, 1),
     )
+    result = result.to(module.weight.device)
     result[0].weight.detach().copy_(w1)
     result[0].bias.detach().copy_(b1)
     result[1].weight.detach().copy_(w2)
@@ -118,6 +121,7 @@ def wrap_conv_after(module, basis, mean):
             1,
         ),
     )
+    result = result.to(module.weight.device)
     result[0].weight.detach().copy_(w)
     result[0].bias.detach().copy_(b)
     result[1].weight.detach().copy_(basis.permute(1, 0)[:, :, None, None])
@@ -130,7 +134,7 @@ def wrap_module_baseline(module, dim):
         return nn.Sequential(
             nn.Linear(module.in_features, dim),
             nn.Linear(dim, module.out_features),
-        )
+        ).to(module.weight.device)
     elif isinstance(module, nn.Conv2d):
         return nn.Sequential(
             nn.Conv2d(module.in_channels, dim,
@@ -140,5 +144,5 @@ def wrap_module_baseline(module, dim):
                       dilation=module.dilation,
                       groups=module.groups),
             nn.Conv2d(dim, module.out_channels, kernel_size=1),
-        )
+        ).to(module.weight.device)
     raise TypeError('unsupported module type: ' + str(type(module)))
