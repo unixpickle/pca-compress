@@ -88,19 +88,27 @@ class LayerLocation(ABC):
         Returns:
             A tuple (outputs, activations).
         """
+        outputs, befores, afters = self.forward_both(model, inputs)
+        if before:
+            return outputs, befores
+        else:
+            return outputs, afters
+
+    def forward_both(self, model, inputs):
+        """
+        Like forward, but returns (result, before, after).
+        """
         module = self.get_module(model)
         backup = module.forward
 
-        output_activations = [None]
+        output_activations = [None, None]
 
         def new_forward(*x, **y):
-            if before and not x[0].requires_grad:
+            if not x[0].requires_grad:
                 x = tuple(v.clone().requires_grad_(True) for v in x)
             output = backup(*x, **y)
-            if before:
-                output_activations[0] = x[0]
-            else:
-                output_activations[0] = output
+            output_activations[0] = x[0]
+            output_activations[1] = output
             return output
 
         module.forward = new_forward
@@ -110,7 +118,7 @@ class LayerLocation(ABC):
         finally:
             module.forward = backup
 
-        return result, output_activations[0]
+        return result, output_activations[0], output_activations[1]
 
     @abstractmethod
     def get_module(self, model):

@@ -95,12 +95,17 @@ def activation_grad_stats(model, location, batches, loss_fn, before):
     grad_sum = None
     outer_sum = None
     for batch_in, batch_out in batches:
-        outputs, activations = location.forward(model, batch_in, before=before)
+        outputs, befores, afters = location.forward_both(model, batch_in)
+        if before:
+            activations = befores
+        else:
+            activations = afters
+        activations = _combine_spatio_temporal(module, before, activations.detach())
+
         # Adjust loss scale to correct for batch size.
         loss = loss_fn(outputs, batch_out) * batch_in.shape[0]
-        grads = torch.autograd.grad(loss, activations)[0]
-        activations = _combine_spatio_temporal(module, before, activations.detach())
-        grads = _combine_spatio_temporal(module, before, grads.detach())
+        grads = _combined_gradients(module, befores, afters, loss, before)
+
         outer = torch.matmul(activations.permute(1, 0), grads)
         total_count += activations.shape[0]
         if activ_sum is None:
@@ -136,3 +141,26 @@ def _combine_spatio_temporal(module, before, outputs):
                        stride=module.stride)
     patches = patches.permute(0, 2, 1).contiguous().view(-1, patches.shape[1])
     return patches
+
+
+def _combined_gradients(module, befores, afters, loss, before):
+    if before and isinstance(module, nn.Conv2d):
+        upstream = torch.autograd.grad(loss, afters)[0]
+        patches = F.unfold(befores.detach(), module.kernel_size,
+                           dilation=module.dilation,
+                           padding=module.padding,
+                           stride=module.stride).requires_grad_(True)
+        packed = patches.permute(0, 2, 1).contiguous().view(-1, patches.shape[1])
+        outputs = torch.matmul(packed, module.weight.view(
+            module.out_channels, -1).transpose(1, 0))
+        outputs = outputs.view(patches.shape[0], patches.shape[2], -1)
+        outputs = outputs.permute(0, 2, 1).contiguous().view(upstream.shape)
+        grads = torch.autograd.grad(outputs, packed, grad_outputs=upstream)[0]
+    else:
+        if before:
+            activations = befores
+        else:
+            activations = afters
+        grads = torch.autograd.grad(loss, activations)[0]
+        grads = _combine_spatio_temporal(module, before, grads.detach())
+    return grads
