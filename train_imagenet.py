@@ -20,7 +20,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
-from pca_compress import AttributeLayerLocation, project_module
+from pca_compress import AttributeLayerLocation, project_module_stats
 
 STATISTICS_BATCHES = 64
 DIM_REDUCTION = 0.5
@@ -143,8 +143,8 @@ def main_worker(args):
                 if i == STATISTICS_BATCHES or args.resume:
                     break
         dim = location.get_module(model).weight.shape[0]
-        project_module(model, location, load_data(), int(dim * DIM_REDUCTION),
-                       loss_fn=criterion)
+        project_module_stats(model, location, load_data(), int(dim * DIM_REDUCTION),
+                             loss_fn=criterion)
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
