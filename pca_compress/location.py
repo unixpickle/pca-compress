@@ -231,16 +231,8 @@ class AttributeLayerLocation(LayerLocation):
         setattr(model, path[-1], m)
 
     def next_location(self, model):
-        path = self._path()
-        parent = model
-        for x in path[:-1]:
-            parent = getattr(parent, x)
-        if not isinstance(parent, nn.Sequential):
-            return None
-        idx = int(path[-1])
-        if idx + 1 == len(parent):
-            return None
-        return AttributeLayerLocation((path[:-1] + [str(idx+1)]).join('.'))
+        # Don't make any assumptions about attribute structure.
+        return None
 
     def _path(self):
         return self.name.split('.')
