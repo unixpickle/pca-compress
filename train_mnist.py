@@ -10,7 +10,7 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 
-from pca_compress import AttributeLayerLocation, project_module, wrap_module_baseline
+from pca_compress import AttributeLayerLocation, project_module_hessian, wrap_module_baseline
 
 
 class Net(nn.Module):
@@ -132,9 +132,12 @@ def main():
         print('Projecting layer ' + location.name + '...')
         if not args.baseline:
             def get_batches():
-                for x, y in train_loader:
-                    yield x.to(device), y.to(device)
-            project_module(model, location, get_batches(), dim, loss_fn=F.nll_loss)
+                while True:
+                    for x, y in train_loader:
+                        yield x.to(device), y.to(device)
+
+            project_module_hessian(model, location, get_batches(), 100, dim,
+                                   proj_samples=40000)
         else:
             module = location.get_module(model)
             module = wrap_module_baseline(module, dim)
