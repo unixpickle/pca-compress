@@ -1,7 +1,7 @@
 import numpy as np
 
 D = 128
-N = 30000
+N = D ** 2
 
 
 def outer_products(mat, dirs):
@@ -27,11 +27,12 @@ def approximate_linear(mat, samples):
 
 def approximate_boosted(mat, samples):
     res = np.zeros_like(mat)
-    for sample in samples:
-        target = (sample[None] @ mat @ sample[:, None]).item()
-        current = (sample[None] @ res @ sample[:, None]).item()
-        outer = sample[:, None] @ sample[None]
-        res += (target - current) * outer
+    targets = [(sample[None] @ mat @ sample[:, None]).item() for sample in samples]
+    for _ in range(10):
+        for sample, target in zip(samples, targets):
+            current = (sample[None] @ res @ sample[:, None]).item()
+            outer = sample[:, None] @ sample[None]
+            res += (target - current) * outer
     return res
 
 
