@@ -84,7 +84,7 @@ def proj_loss_hessian(model, location, batches, mean_samples,
     for inputs, _ in limited_batches(proj_samples or dim ** 2):
         with torch.no_grad():
             outputs, activations = location.forward(model, inputs, before=before)
-        projections = torch.randn(inputs.shape[0], activations.shape[1])
+        projections = torch.randn(inputs.shape[0], activations.shape[1]).to(mean.device)
         projections /= torch.sqrt(torch.sum(projections * projections, dim=-1, keepdim=True))
 
         def project_activations(acts):
