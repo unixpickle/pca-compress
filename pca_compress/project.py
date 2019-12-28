@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -53,6 +54,97 @@ def project_module(model, location, batches, dim, loss_fn=None, greedy=False, be
         major_basis = basis[major_indices]
     old_module = location.get_module(model)
     new_module = wrap_module_projection(old_module, major_basis, mean, before=before)
+    return inject_module(location, model, new_module)
+
+
+def mse_losses(x, y):
+    return torch.sum(torch.pow(x-y, 2).view(x.shape[0], -1), dim=1)
+
+
+def project_module_optimal(model, location, batches, dim,
+                           loss_fn=mse_losses,
+                           mean_samples=None, proj_samples=None,
+                           rounds=2):
+    """
+    Project the module to minimize the loss between the
+    previous outputs and the new, projected outputs.
+
+    It is recommended that you only use this with
+    deterministic models, i.e. in eval() mode.
+
+    Args:
+        model: an nn.Module to project from.
+        location: a LayerLocation compatible with model.
+        batches: an iterator over (input, output) batches.
+          This should be infinite.
+        dim: the final number of dimensions to project to.
+        loss_fn: if specified, the gradient of this loss
+          function on (old, new) is used to measure the
+          error induced by each projection.
+        mean_samples: the number of samples to use to
+          measure the mean activation. By default, a value
+          of dim is used.
+        proj_samples: the number of projections to sample
+          while computing the approximate Hessian. By
+          default, dim ** 2 is used.
+        rounds: the number of optimization rounds to try
+          to approximate the hessian.
+
+    Returns:
+        A new location for the replaced module, for
+          example pointing to the new nn.Conv2d.
+        This location may be nested inside of the old one.
+    """
+    def limited_batches(target):
+        count = 0
+        for inputs, outputs in batches:
+            yield (inputs, outputs)
+            count += inputs.shape[0]
+            if count >= target:
+                break
+    mean, _ = activation_stats(model, location, limited_batches(mean_samples or dim), False)
+
+    all_projections = []
+    all_losses = []
+    for inputs, _ in limited_batches(proj_samples or dim ** 2):
+        outputs, activations = location.forward(model, inputs)
+        projections = torch.randn(inputs.shape[0], activations.shape[1])
+        projections /= torch.sqrt(torch.sum(projections * projections, dim=-1, keepdim=True))
+
+        def project_activations(acts):
+            expanded_projs = projections
+            expanded_mean = mean
+            while len(expanded_projs.shape) < len(acts.shape):
+                expanded_projs = expanded_projs[..., None]
+                expanded_mean = expanded_mean[..., None]
+            acts = acts - expanded_mean
+            acts = acts - expanded_projs * torch.sum(expanded_projs * acts, dim=1, keepdim=True)
+            acts = acts + expanded_mean
+            return acts
+        new_outputs, _ = location.forward(model, inputs, modify=project_activations)
+        losses = loss_fn(outputs, new_outputs)
+        all_projections.extend(projections.detach().cpu().numpy())
+        all_losses.extend(losses.detach().cpu().numpy())
+
+    all_projections = np.array(all_projections)
+    all_losses = np.array(all_losses)
+    mat = np.zeros([all_projections.shape[1]] * 2, dtype=all_projections.dtype)
+    for i in range(rounds):
+        for sample, target in zip(all_projections, all_losses):
+            current = (sample[None] @ mat @ sample[:, None]).item()
+            outer = sample[:, None] @ sample[None]
+            mat += (target - current) * outer
+
+    # TODO: reuse this code from other projection routine.
+    cov = torch.from_numpy(mat).to(mean.device)
+    basis, sigmas, _ = torch.svd(cov)
+    basis = basis.permute(1, 0).contiguous()
+    indexed_sigmas = enumerate(sigmas.detach().cpu().numpy())
+    sorted_sigmas = sorted(indexed_sigmas, key=lambda x: x[1], reverse=True)
+    major_indices = [x[0] for x in sorted_sigmas[:dim]]
+    major_basis = basis[major_indices]
+    old_module = location.get_module(model)
+    new_module = wrap_module_projection(old_module, major_basis, mean)
     return inject_module(location, model, new_module)
 
 

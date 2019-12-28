@@ -77,7 +77,7 @@ class LayerLocation(ABC):
         finally:
             module.forward = backup
 
-    def forward(self, model, inputs, before=False):
+    def forward(self, model, inputs, before=False, modify=None):
         """
         Like layer_values, but also returns the final
         outputs of the model.
@@ -85,16 +85,29 @@ class LayerLocation(ABC):
         This may take longer than layer_values(), since a
         full forward pass will always be performed.
 
+        Args:
+            model: the model to run.
+            inputs: the input batch.
+            before: if specified, yield activations before
+              the location, not after.
+            modify: if not None, this is a lambda which
+              modifies the activations before they are
+              passed on through the model.
+
         Returns:
             A tuple (outputs, activations).
         """
-        outputs, befores, afters = self.forward_both(model, inputs)
+        mod_before = (modify if before else None)
+        mod_after = (modify if not before else None)
+        outputs, befores, afters = self.forward_both(model, inputs,
+                                                     modify_before=mod_before,
+                                                     modify_after=mod_after)
         if before:
             return outputs, befores
         else:
             return outputs, afters
 
-    def forward_both(self, model, inputs):
+    def forward_both(self, model, inputs, modify_before=None, modify_after=None):
         """
         Like forward, but returns (result, before, after).
         """
@@ -106,7 +119,11 @@ class LayerLocation(ABC):
         def new_forward(*x, **y):
             if not x[0].requires_grad:
                 x = tuple(v.clone().requires_grad_(True) for v in x)
+            if modify_before is not None:
+                x = tuple(modify_before(v) for v in x)
             output = backup(*x, **y)
+            if modify_after is not None:
+                output = modify_after(output)
             output_activations[0] = x[0]
             output_activations[1] = output
             return output
