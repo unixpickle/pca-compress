@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -129,11 +131,29 @@ def project_module_optimal(model, location, batches, dim,
     all_projections = np.array(all_projections)
     all_losses = np.array(all_losses)
     mat = np.zeros([all_projections.shape[1]] * 2, dtype=all_projections.dtype)
+    last_loss = math.inf
     for i in range(rounds):
-        for sample, target in zip(all_projections, all_losses):
-            current = (sample[None] @ mat @ sample[:, None]).item()
-            outer = sample[:, None] @ sample[None]
-            mat += (target - current) * outer
+        # Compute the current gradient of the sum of outer
+        # product squared errors with respect to our
+        # approximation matrix.
+        current_outputs = quadratic_products(mat, all_projections)
+        deltas = all_losses - current_outputs
+        grad = (all_projections.T @ (all_projections * deltas[:, None]))
+
+        # Compute the optimal step size using the solution
+        # to an analytical line search.
+        grad_outers = quadratic_products(grad, all_projections)
+        sum1 = np.sum(grad_outers * deltas)
+        sum2 = np.sum(grad_outers * grad_outers)
+
+        mat += grad * sum1/sum2
+        loss = np.mean(deltas * deltas)
+        if loss >= last_loss:
+            break
+        last_loss = loss
+
+        # Uncomment for debugging purposes:
+        # print('fitting step', i, np.mean(deltas*deltas))
 
     # TODO: reuse this code from other projection routine.
     cov = torch.from_numpy(mat).to(mean.device)
@@ -146,6 +166,10 @@ def project_module_optimal(model, location, batches, dim,
     old_module = location.get_module(model)
     new_module = wrap_module_projection(old_module, major_basis, mean)
     return inject_module(location, model, new_module)
+
+
+def quadratic_products(matrix, vectors):
+    return np.sum(vectors * (vectors @ matrix), axis=-1)
 
 
 def activation_stats(model, location, batches, before):
