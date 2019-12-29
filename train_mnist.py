@@ -126,6 +126,8 @@ def main():
 
     model = Net().to(device)
 
+    model.eval()
+
     locations = [AttributeLayerLocation(x) for x in ['conv1', 'conv2', 'fc1']]
     dims = [8, 32, 64]
     for location, dim in zip(locations, dims):
@@ -137,7 +139,7 @@ def main():
                         yield x.to(device), y.to(device)
 
             project_module_hessian(model, location, get_batches(), 100, dim,
-                                   proj_samples=40000)
+                                   rank_loss=True, proj_samples=40000)
         else:
             module = location.get_module(model)
             module = wrap_module_baseline(module, dim)
