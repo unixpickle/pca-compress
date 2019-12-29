@@ -117,7 +117,9 @@ def proj_loss_hessian(model, location, batches, mean_samples,
         l2r = {k: v for v, k in ranked}
         all_losses = np.array([l2r[x] for x in all_losses], dtype=all_losses.dtype)
 
-    mat = np.zeros([all_projections.shape[1]] * 2, dtype=all_projections.dtype)
+    mat = torch.zeros(all_projections.shape[1], all_projections.shape[1]).to(mean.device)
+    all_projections = torch.from_numpy(all_projections).to(mat.device)
+    all_losses = torch.from_numpy(all_losses).to(mat.device)
     last_loss = math.inf
     for i in range(rounds):
         # Compute the current gradient of the sum of outer
@@ -125,25 +127,25 @@ def proj_loss_hessian(model, location, batches, mean_samples,
         # approximation matrix.
         current_outputs = _quadratic_products(mat, all_projections)
         deltas = all_losses - current_outputs
-        grad = (all_projections.T @ (all_projections * deltas[:, None]))
+        grad = torch.matmul(all_projections.transpose(1, 0), (all_projections * deltas[:, None]))
 
         # Compute the optimal step size using the solution
         # to an analytical line search.
         grad_outers = _quadratic_products(grad, all_projections)
-        sum1 = np.sum(grad_outers * deltas)
-        sum2 = np.sum(grad_outers * grad_outers)
+        sum1 = torch.sum(grad_outers * deltas)
+        sum2 = torch.sum(grad_outers * grad_outers)
 
-        mat += grad * sum1/sum2
-        loss = np.mean(deltas * deltas)
+        mat += grad * sum1 / sum2
+        loss = torch.mean(deltas * deltas).item()
         if loss >= last_loss:
             break
         last_loss = loss
 
         # Uncomment for debugging purposes:
-        # print('fitting step', i, np.mean(deltas*deltas))
+        # print('fitting step', i, torch.mean(deltas*deltas).item())
 
-    return torch.from_numpy(mat).to(mean.device), mean
+    return mat, mean
 
 
 def _quadratic_products(matrix, vectors):
-    return np.sum(vectors * (vectors @ matrix), axis=-1)
+    return torch.sum(vectors * torch.matmul(vectors, matrix), dim=-1)
