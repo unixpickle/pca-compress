@@ -113,7 +113,7 @@ def proj_loss_hessian(model, location, batches, mean_samples,
     all_losses = np.array(all_losses)
 
     if rank_loss:
-        ranked = sorted(enumerate(all_losses), key=lambda x: x[1])
+        ranked = enumerate(sorted(all_losses))
         l2r = {k: v for v, k in ranked}
         all_losses = np.array([l2r[x] for x in all_losses], dtype=all_losses.dtype)
 
