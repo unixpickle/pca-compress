@@ -36,6 +36,7 @@ def proj_loss_hessian(model, location, batches, mean_samples,
                       loss_fn=proj_mse_losses,
                       proj_samples=None,
                       rounds=100,
+                      rank_loss=False,
                       before=False):
     """
     Compute a Hessian matrix H which approximates the loss
@@ -62,6 +63,8 @@ def proj_loss_hessian(model, location, batches, mean_samples,
           default, activation_channels ** 2 is used.
         rounds: the maximum number of optimization rounds
           for computing the hessian with gradient descent.
+        rank_loss: sort losses and use the index as the
+          new loss.
         before: if True, project before the activation.
 
     Returns:
@@ -108,6 +111,12 @@ def proj_loss_hessian(model, location, batches, mean_samples,
 
     all_projections = np.array(all_projections)
     all_losses = np.array(all_losses)
+
+    if rank_loss:
+        ranked = sorted(enumerate(all_losses), key=lambda x: x[1])
+        l2r = {k: v for v, k in ranked}
+        all_losses = np.array([l2r[x] for x in all_losses], dtype=all_losses.dtype)
+
     mat = np.zeros([all_projections.shape[1]] * 2, dtype=all_projections.dtype)
     last_loss = math.inf
     for i in range(rounds):

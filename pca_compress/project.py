@@ -54,6 +54,7 @@ def project_module_hessian(model, location, batches, mean_samples, dim,
                            loss_fn=proj_mse_losses,
                            proj_samples=None,
                            rounds=100,
+                           rank_loss=False,
                            before=False):
     """
     Use an approximate hessian of the loss function for
@@ -71,6 +72,7 @@ def project_module_hessian(model, location, batches, mean_samples, dim,
                                      loss_fn=loss_fn,
                                      proj_samples=proj_samples,
                                      rounds=rounds,
+                                     rank_loss=rank_loss,
                                      before=before)
     return project_module_eigen(model, location, dim, mean, matrix, before=before)
 
