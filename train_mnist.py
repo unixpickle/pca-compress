@@ -139,7 +139,7 @@ def main():
                         yield x.to(device), y.to(device)
 
             project_module_hessian(model, location, get_batches(), 100, dim,
-                                   rank_loss=True, proj_samples=40000)
+                                   proj_samples=2000, local=True)
         else:
             module = location.get_module(model)
             module = wrap_module_baseline(module, dim)

@@ -243,7 +243,7 @@ def proj_loss_hessian_local(model, location, batches, mean_samples,
         last_loss = loss
 
         # Uncomment for debugging purposes:
-        print('fitting step', i, last_loss)
+        # print('fitting step', i, last_loss)
 
     return mat, mean
 
