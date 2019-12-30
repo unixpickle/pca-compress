@@ -135,7 +135,7 @@ def proj_loss_hessian(model, location, batches, mean_samples,
         last_loss = loss
 
         # Uncomment for debugging purposes:
-        # print('fitting step', i, torch.mean(deltas*deltas).item())
+        # print('fitting step', i, last_loss)
 
     return mat, mean
 
@@ -201,16 +201,16 @@ def proj_loss_hessian_local(model, location, batches, mean_samples,
             acts = acts + expanded_mean
             return acts
 
-        outputs, _ = location.forward(inputs, before=before, modify=project_activations)
-        losses = loss_fn(outputs.detach(), outputs)
+        outputs, _ = location.forward(model, inputs, before=before, modify=project_activations)
+        losses = loss_fn(outputs, outputs)
 
-        grads = torch.autograd.grad(losses, zero_projections, retain_graph=True)[0]
-        grads = torch.autograd.grad(grads, zero_projections, grad_outputs=projections)[0]
+        grads = torch.autograd.grad(torch.sum(losses), zero_projections, create_graph=True)[0]
+        grads = torch.autograd.grad(torch.sum(grads * projections), zero_projections)[0]
 
         all_inputs.extend(projections.detach().cpu().numpy())
         all_outputs.extend(grads.detach().cpu().numpy())
 
-    mat = torch.zeros(all_inputs.shape[1], all_inputs.shape[1]).to(mean.device)
+    mat = torch.zeros(len(all_inputs[0]), len(all_inputs[0])).to(mean.device)
     all_inputs = torch.from_numpy(np.array(all_inputs)).to(mat.device)
     all_outputs = torch.from_numpy(np.array(all_outputs)).to(mat.device)
     last_loss = math.inf
@@ -229,7 +229,7 @@ def proj_loss_hessian_local(model, location, batches, mean_samples,
         last_loss = loss
 
         # Uncomment for debugging purposes:
-        # print('fitting step', i, torch.mean(deltas*deltas).item())
+        print('fitting step', i, last_loss)
 
     return mat, mean
 

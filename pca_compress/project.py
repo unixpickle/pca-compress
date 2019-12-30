@@ -1,6 +1,6 @@
 import torch
 
-from .hessapprox import proj_mse_losses, proj_loss_hessian
+from .hessapprox import proj_mse_losses, proj_loss_hessian, proj_loss_hessian_local
 from .modules import inject_module, wrap_module_projection
 from .stats import activation_stats, activation_grad_stats
 
@@ -55,25 +55,34 @@ def project_module_hessian(model, location, batches, mean_samples, dim,
                            proj_samples=None,
                            rounds=100,
                            rank_loss=False,
+                           local=False,
                            before=False):
     """
     Use an approximate hessian of the loss function for
     activation projections to project the module at the
     given location.
 
-    See proj_loss_hessian() for more information.
+    See proj_loss_hessian() and proj_loss_hessian_local()
+    for more information.
 
     Returns:
         A new location for the replaced module, for
           example pointing to the new nn.Conv2d.
         This location may be nested inside of the old one.
     """
-    matrix, mean = proj_loss_hessian(model, location, batches, mean_samples,
-                                     loss_fn=loss_fn,
-                                     proj_samples=proj_samples,
-                                     rounds=rounds,
-                                     rank_loss=rank_loss,
-                                     before=before)
+    if local:
+        matrix, mean = proj_loss_hessian_local(model, location, batches, mean_samples,
+                                               loss_fn=loss_fn,
+                                               proj_samples=proj_samples,
+                                               rounds=rounds,
+                                               before=before)
+    else:
+        matrix, mean = proj_loss_hessian(model, location, batches, mean_samples,
+                                         loss_fn=loss_fn,
+                                         proj_samples=proj_samples,
+                                         rounds=rounds,
+                                         rank_loss=rank_loss,
+                                         before=before)
     return project_module_eigen(model, location, dim, mean, matrix, before=before)
 
 
