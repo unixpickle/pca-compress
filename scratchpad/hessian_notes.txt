@@ -1,0 +1,59 @@
+----------------
+
+Finding hessian using nothing but values of x'*H*x for many random x.
+
+minimize_H  sum_x((x'*H*x - x'*A*x)^2)
+
+grad = 2*sum_x((x'*H*x - x'*A*x)*(x'*x))
+
+sum_x((x'*H*x - x'*A*x)*(x'*x)) = 0
+= sum_x((x'*H*x)*(x'*x) - (x'*A*x)*(x'*x)) = 0
+
+sum_x((x'*H*x)*(x'*x)) = sum((x'*A*x)*(x'*x))
+????
+
+Try to optimize the step size:
+0 = grad_a sum_x((x'*(H+aG)*x - x'*A*x)^2)
+  = sum_x(2*(x'*(H+aG)*x - x'*A*x)*x'*G*x)
+  = sum_x((x'*(H+aG)*x)*x'*G*x - (x'*A*x)*(x'*G*x))
+  = sum_x((x'*H*x + x'*aG*x)*x'*G*x - (x'*A*x)*(x'*G*x))
+  = sum_x((x'*H*x)*(x'*G*x) + a*(x'*G*x)^2 - (x'*A*x)*(x'*G*x))
+  = sum_x((x'*H*x)*(x'*G*x) + a*(x'*G*x)^2 - (x'*A*x)*(x'*G*x))
+
+-----------------
+
+Finding hessian using second-order info.
+
+We have a batch of inputs x and outputs y from H, i.e. Hx = y.
+
+Want to find matrix H to minimize sum_i((H*x_i - y_i)^2).
+
+Gradient for sample i: 2*(H*x_i - y_i)*x_i'.
+Now make matrices X and Y where x's and y's are rows. Thus:
+
+Gradient ~ X'*(X*H - Y) = X'*X*H - X'*Y
+
+Gradient = 0 when H = inv(X'*X)*X'*Y
+
+However, we want to constrain H to be symmetric, so the real loss is:
+
+sum_i((H*x_i - y_i)^2 + (H'*x_i - y_i)^2)
+
+So the loss gradient is: 2*(H*x_i - y_i)*x_i' + 2*x_i*(H'*x_i - y_i)'
+
+So our batched loss gradient is proportional to:
+
+X'*(X*H - Y) + (H'*X' - Y')*X
+
+Setting this equal to zero, we get:
+
+0 = X'*(X*H - Y) + (H'*X' - Y')*X
+  = X'*X*H - X'*Y + H'*X'*X - Y'*X
+  = X'*X*H + (X'*X*H)' - X'*Y - (X'*Y)'
+
+Aside: how to solve AX + XA' = Y for A? We must technically approximate with least squares:
+
+min_A ||AX + XA' - Y||^2
+
+(AX + XA' - Y)*X = 0
+AX^2 + XA'X - Y*X = 0
