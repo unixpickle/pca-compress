@@ -35,7 +35,7 @@ grad(A) = sum_i(r*x_i' + x_i'*r)
 
 Letting X and Y be big matrices where columns are xs and ys.
 
-grad(A) = (AX + Y)*X' + X*(AX + Y)'
+grad(A) = (AX - Y)*X' + X*(AX - Y)'
 
 Now let's figure out the optimal step size:
 
