@@ -72,19 +72,12 @@ def proj_loss_hessian(model, location, batches, mean_samples,
           hessian: the approximated hessian.
           mean: the computed mean activation
     """
-    def limited_batches(target):
-        count = 0
-        for inputs, outputs in batches:
-            yield (inputs, outputs)
-            count += inputs.shape[0]
-            if count >= target:
-                break
-    mean, _ = activation_stats(model, location, limited_batches(mean_samples), before)
+    mean, _ = activation_stats(model, location, _limited_batches(batches, mean_samples), before)
     dim = mean.shape[0]
 
     all_projections = []
     all_losses = []
-    for inputs, _ in limited_batches(proj_samples or dim ** 2):
+    for inputs, _ in _limited_batches(batches, proj_samples or dim ** 2):
         with torch.no_grad():
             outputs, activations = location.forward(model, inputs, before=before)
         projections = torch.randn(inputs.shape[0], activations.shape[1]).to(mean.device)
@@ -147,5 +140,108 @@ def proj_loss_hessian(model, location, batches, mean_samples,
     return mat, mean
 
 
+def proj_loss_hessian_local(model, location, batches, mean_samples,
+                            loss_fn=proj_mse_losses,
+                            proj_samples=None,
+                            rounds=100,
+                            before=False):
+    """
+    Compute a Hessian matrix H which approximates the loss
+    incurred by projecting out a unit vector x from the
+    activation maps at the given location. Thus, x'*H*x is
+    the approximate loss.
+
+    Unlike proj_loss_hessian, this uses second derivatives
+    through the model to get more information for every
+    sample. Thus, it can require quadratically fewer model
+    evaluations.
+
+    Args:
+        model: an nn.Module to project from.
+        location: a LayerLocation compatible with model.
+        batches: an iterator over (input, output) batches.
+          This should be infinite.
+        mean_samples: the number of samples to use to
+          measure the mean activation.
+        loss_fn: the loss function to approximate. Takes
+          the arguments (old_outputs, new_outputs) and
+          returns a one-dimensional batch of losses, one
+          per batch element. It should have a minimum
+          when the outputs have not changed.
+        proj_samples: the number of projections to sample
+          while computing the approximate Hessian. By
+          default, activation_channels is used.
+        rounds: the maximum number of optimization rounds
+          for computing the hessian with gradient descent.
+        before: if True, project before the activation.
+
+    Returns:
+        A tuple (hessian, mean):
+          hessian: the approximated hessian.
+          mean: the computed mean activation
+    """
+    mean, _ = activation_stats(model, location, _limited_batches(batches, mean_samples), before)
+    dim = mean.shape[0]
+
+    all_inputs = []
+    all_outputs = []
+    for inputs, _ in _limited_batches(batches, proj_samples or dim):
+        projections = torch.randn(inputs.shape[0], mean.shape[0]).to(mean.device)
+        projections /= torch.sqrt(torch.sum(projections * projections, dim=-1, keepdim=True))
+        zero_projections = torch.zeros_like(projections).requires_grad_(True)
+
+        def project_activations(acts):
+            expanded_projs = zero_projections
+            expanded_mean = mean
+            while len(expanded_projs.shape) < len(acts.shape):
+                expanded_projs = expanded_projs[..., None]
+                expanded_mean = expanded_mean[..., None]
+            acts = acts - expanded_mean
+            acts = acts - expanded_projs * torch.sum(expanded_projs * acts, dim=1, keepdim=True)
+            acts = acts + expanded_mean
+            return acts
+
+        outputs, _ = location.forward(inputs, before=before, modify=project_activations)
+        losses = loss_fn(outputs.detach(), outputs)
+
+        grads = torch.autograd.grad(losses, zero_projections, retain_graph=True)[0]
+        grads = torch.autograd.grad(grads, zero_projections, grad_outputs=projections)[0]
+
+        all_inputs.extend(projections.detach().cpu().numpy())
+        all_outputs.extend(grads.detach().cpu().numpy())
+
+    mat = torch.zeros(all_inputs.shape[1], all_inputs.shape[1]).to(mean.device)
+    all_inputs = torch.from_numpy(np.array(all_inputs)).to(mat.device)
+    all_outputs = torch.from_numpy(np.array(all_outputs)).to(mat.device)
+    last_loss = math.inf
+    for i in range(rounds):
+        residual = torch.matmul(all_inputs, mat) - all_outputs
+        grad = torch.matmul(all_outputs.transpose(1, 0), residual)
+        grad = grad + grad.transpose(1, 0)
+
+        grad_outer = torch.matmul(all_inputs, grad).view(-1)
+        step_size = torch.sum(residual.view(-1) * grad_outer) / torch.sum(grad_outer * grad_outer)
+
+        mat += grad * step_size
+        loss = torch.mean(residual * residual).item()
+        if loss >= last_loss:
+            break
+        last_loss = loss
+
+        # Uncomment for debugging purposes:
+        # print('fitting step', i, torch.mean(deltas*deltas).item())
+
+    return mat, mean
+
+
 def _quadratic_products(matrix, vectors):
     return torch.sum(vectors * torch.matmul(vectors, matrix), dim=-1)
+
+
+def _limited_batches(batches, target):
+    count = 0
+    for inputs, outputs in batches:
+        yield (inputs, outputs)
+        count += inputs.shape[0]
+        if count >= target:
+            break

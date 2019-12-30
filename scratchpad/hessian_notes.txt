@@ -27,33 +27,20 @@ Finding hessian using second-order info.
 We have a batch of inputs x and outputs y from H, i.e. Hx = y.
 
 Want to find matrix H to minimize sum_i((H*x_i - y_i)^2).
+Constrain H to be symmetric, i.e. H = A'*A:
+loss = sum_i(((A' + A)*x_i - y_i)^2)
+let r_i = ((A' + A)*x_i - y_i)
+grad(a_ij) = sum_n(r_ni * x_nj + r_nj * x_ni)
+grad(A) = sum_i(r*x_i' + x_i'*r)
 
-Gradient for sample i: 2*(H*x_i - y_i)*x_i'.
-Now make matrices X and Y where x's and y's are rows. Thus:
+Letting X and Y be big matrices where columns are xs and ys.
 
-Gradient ~ X'*(X*H - Y) = X'*X*H - X'*Y
+grad(A) = (AX + Y)*X' + X*(AX + Y)'
 
-Gradient = 0 when H = inv(X'*X)*X'*Y
+Now let's figure out the optimal step size:
 
-However, we want to constrain H to be symmetric, so the real loss is:
+grad = G, and G = G' by definition in the above formula
+let H = our solution matrix.
 
-sum_i((H*x_i - y_i)^2 + (H'*x_i - y_i)^2)
-
-So the loss gradient is: 2*(H*x_i - y_i)*x_i' + 2*x_i*(H'*x_i - y_i)'
-
-So our batched loss gradient is proportional to:
-
-X'*(X*H - Y) + (H'*X' - Y')*X
-
-Setting this equal to zero, we get:
-
-0 = X'*(X*H - Y) + (H'*X' - Y')*X
-  = X'*X*H - X'*Y + H'*X'*X - Y'*X
-  = X'*X*H + (X'*X*H)' - X'*Y - (X'*Y)'
-
-Aside: how to solve AX + XA' = Y for A? We must technically approximate with least squares:
-
-min_A ||AX + XA' - Y||^2
-
-(AX + XA' - Y)*X = 0
-AX^2 + XA'X - Y*X = 0
+loss = ||(H+a*G)*X - Y||^2 = ||H*X + a*G*X - Y||^2
+optimal a = dot(Y - H*X, G*X) / dot(G*X, G*X)
