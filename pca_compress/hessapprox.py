@@ -191,13 +191,15 @@ def proj_loss_hessian_local(model, location, batches, mean_samples,
         zero_projections = torch.zeros_like(projections).requires_grad_(True)
 
         def project_activations(acts):
-            expanded_projs = zero_projections
+            expanded_zeros = zero_projections
+            expanded_projs = projections
             expanded_mean = mean
             while len(expanded_projs.shape) < len(acts.shape):
+                expanded_zeros = expanded_zeros[..., None]
                 expanded_projs = expanded_projs[..., None]
                 expanded_mean = expanded_mean[..., None]
             acts = acts - expanded_mean
-            acts = acts - expanded_projs * torch.sum(expanded_projs * acts, dim=1, keepdim=True)
+            acts = acts - expanded_zeros * torch.sum(expanded_projs * acts, dim=1, keepdim=True)
             acts = acts + expanded_mean
             return acts
 
