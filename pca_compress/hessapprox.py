@@ -222,7 +222,7 @@ def proj_loss_hessian_local(model, location, batches, mean_samples,
         grad_outer = torch.matmul(all_inputs, grad).view(-1)
         step_size = torch.sum(residual.view(-1) * grad_outer) / torch.sum(grad_outer * grad_outer)
 
-        mat += grad * step_size
+        mat -= grad * step_size
         loss = torch.mean(residual * residual).item()
         if loss >= last_loss:
             break
