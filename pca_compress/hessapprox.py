@@ -200,11 +200,17 @@ def proj_loss_hessian_local(model, location, batches, mean_samples,
                 expanded_mean = expanded_mean[..., None]
             acts = acts - expanded_mean
 
-            # Ideally we would use expanded_zeros in both places,
-            # but that results in all-zero Hessian-vector products.
-            term1 = expanded_zeros * torch.sum(expanded_projs * acts, dim=1, keepdim=True)
-            term2 = expanded_projs * torch.sum(expanded_zeros * acts, dim=1, keepdim=True)
-            acts = acts - (term1 + term2) / 2
+            # Ideally we would not need expanded_projs, and
+            # use expanded_zeros instead, but it results in
+            # zero Hessian-vector products.
+            #
+            # I experimented with this term instead, but it
+            # was worse on a pre-trained MNIST model:
+            #
+            #     term = expanded_zeros * torch.sum(expanded_projs * acts, dim=1, keepdim=True)
+            #
+            term = expanded_projs * torch.sum(expanded_zeros * acts, dim=1, keepdim=True)
+            acts = acts - term
 
             acts = acts + expanded_mean
             return acts
