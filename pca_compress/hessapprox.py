@@ -202,7 +202,7 @@ def proj_loss_hessian_local(model, location, batches, mean_samples,
             return acts
 
         outputs, _ = location.forward(model, inputs, before=before, modify=project_activations)
-        losses = loss_fn(outputs, outputs)
+        losses = loss_fn(outputs.detach(), outputs)
 
         grads = torch.autograd.grad(torch.sum(losses), zero_projections, create_graph=True)[0]
         grads = torch.autograd.grad(torch.sum(grads * projections), zero_projections)[0]
