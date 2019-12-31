@@ -188,6 +188,9 @@ class NestedLocation(LayerLocation):
             return None
         return NestedLocation(*self.locs[:-1], loc)
 
+    def __repr__(self):
+        return '/'.join(str(x) for x in self.locs)
+
 
 class SequentialLayerLocation(LayerLocation):
     def __init__(self, layer_idx):
@@ -203,6 +206,9 @@ class SequentialLayerLocation(LayerLocation):
         if self.layer_idx + 1 == len(model):
             return None
         return SequentialLayerLocation(self.layer_idx + 1)
+
+    def __repr__(self):
+        return '[%d]' % self.layer_idx
 
 
 class AttributeLayerLocation(LayerLocation):
@@ -236,6 +242,9 @@ class AttributeLayerLocation(LayerLocation):
 
     def _path(self):
         return self.name.split('.')
+
+    def __repr__(self):
+        return self.name
 
 
 class _CaptureException(BaseException):
