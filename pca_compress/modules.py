@@ -16,7 +16,7 @@ def inject_module(location, model, module):
     if _is_1x1_conv(next_module) and _is_1x1_conv(module[1]):
         w1 = module[1].weight.view(module[1].weight.shape[0], -1)
         w2 = next_module.weight.view(next_module.weight.shape[0], -1)
-        new_w = torch.matmul(w2, w1).view(w2.shape[0], 1, 1, -1)
+        new_w = torch.matmul(w2, w1).view(w2.shape[0], -1, 1, 1)
         bias = torch.matmul(w2, module[1].bias[:, None]).view(-1)
         if next_module.bias is not None:
             bias += next_module.bias
@@ -45,7 +45,8 @@ def inject_module(location, model, module):
 
 
 def _is_1x1_conv(module):
-    return isinstance(module, nn.Conv2d) and module.kernel_size == (1, 1) and module.stride == 1
+    return (isinstance(module, nn.Conv2d) and module.kernel_size == (1, 1) and
+            module.stride == (1, 1))
 
 
 def wrap_module_projection(module, basis, mean, before=False):
