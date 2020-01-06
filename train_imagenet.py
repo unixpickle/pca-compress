@@ -23,7 +23,6 @@ import torchvision.models as models
 from pca_compress import AttributeLayerLocation, project_module_hessian
 
 STATISTICS_BATCHES = 64
-DIM_REDUCTION = 0.5
 
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
@@ -50,6 +49,14 @@ parser.add_argument('-b', '--batch-size', default=32, type=int,
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
+parser.add_argument('--prune-dim', default=0.5, type=float,
+                    help='target filter reduction')
+parser.add_argument('--prune-step', default=0.5, type=float,
+                    help='filter reduction per pruning iteration')
+parser.add_argument('--tune-lr', default=0.0001, type=float,
+                    help='learning rate after pruning')
+parser.add_argument('--tune-epochs', default=0, type=int,
+                    help='tuning epochs after pruning')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
@@ -134,29 +141,7 @@ def main_worker(args):
 
     criterion = nn.CrossEntropyLoss().cuda()
 
-    model.eval()
-    locations = AttributeLayerLocation.module_locations(model)[::-1]
-    locations = [x for x in locations if x.get_module(model).stride == (1, 1)]
-    dims = [int(DIM_REDUCTION * location.get_module(model).weight.shape[0])
-            for location in locations]
-    changed = True
-    while changed:
-        changed = False
-        for i, location in enumerate(locations):
-            source_dim = location.get_module(model).weight.shape[0]
-            target_dim = max(dims[i], int(source_dim - 1))
-            if source_dim == target_dim:
-                break
-            changed = True
-            print('Reducing dimensionality of layer: %s (%d -> %d)...' %
-                  (str(location), source_dim, target_dim))
-
-            def load_data():
-                while True:
-                    for i, (img, target) in enumerate(train_loader):
-                        yield img.cuda(), target.cuda()
-            locations[i] = project_module_hessian(model, location, load_data(), 1024, target_dim,
-                                                  proj_samples=30000, rounds=1000, local=True)
+    prune(train_loader, model, criterion, args)
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
@@ -202,6 +187,41 @@ def main_worker(args):
             'best_acc1': best_acc1,
             'optimizer': optimizer.state_dict(),
         }, is_best)
+
+
+def prune(train_loader, model, criterion, args):
+    locations = AttributeLayerLocation.module_locations(model)[::-1]
+    locations = [x for x in locations if x.get_module(model).stride == (1, 1)]
+    dims = [int(args.prune_dim * location.get_module(model).weight.shape[0])
+            for location in locations]
+
+    changed = True
+    while changed:
+        if args.pretrained:
+            model.eval()
+        changed = False
+        for i, location in enumerate(locations):
+            source_dim = location.get_module(model).weight.shape[0]
+            target_dim = max(dims[i], int(source_dim * args.prune_step))
+            if source_dim == target_dim:
+                break
+            changed = True
+            print('Reducing dimensionality of layer: %s (%d -> %d)...' %
+                  (str(location), source_dim, target_dim))
+
+            def load_data():
+                while True:
+                    for i, (img, target) in enumerate(train_loader):
+                        yield img.cuda(), target.cuda()
+
+            locations[i] = project_module_hessian(model, location, load_data(), 1024, target_dim,
+                                                  proj_samples=30000, rounds=1000, local=True)
+
+        optimizer = torch.optim.SGD(model.parameters(), args.tune_lr,
+                                    momentum=args.momentum,
+                                    weight_decay=args.weight_decay)
+        for i in range(args.tune_epochs):
+            train(train_loader, model, criterion, optimizer, i+1, args)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
