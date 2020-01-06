@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import time
 
 import torch.nn as nn
 
@@ -35,6 +36,49 @@ def sorted_locations(locations, model, inputs):
     finally:
         for loc, b in zip(locations, backups):
             loc.get_module(model).forward = b
+
+    return sorted_locs
+
+
+def time_locations(locations, model, inputs):
+    """
+    Times a forward pass of the model for each location
+    separately.
+
+    Args:
+        locations: a sequence of locations.
+        model: an nn.Module.
+        inputs: an input batch to feed to the model for
+          timing the execution.
+
+    Returns:
+        A list containing the time taken for each location
+          in the given array. If a location is not hit,
+          its time is 0.
+    """
+    backups = []
+    times = [0.0] * len(locations)
+    for i, loc in enumerate(locations):
+        module = loc.get_module(model)
+        b = module.forward
+        backups.append(b)
+
+        def replace_forward(i=i, b=b):
+            def new_forward(*x, **y):
+                t1 = time.time()
+                result = b(*x, **y)
+                times[i] = time.time() - t1
+                return result
+            module.forward = new_forward
+        replace_forward()
+
+    try:
+        model(inputs)
+    finally:
+        for loc, b in zip(locations, backups):
+            loc.get_module(model).forward = b
+
+    return times
 
 
 class LayerLocation(ABC):
