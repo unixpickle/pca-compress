@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 from .stats import activation_stats
@@ -79,26 +80,11 @@ def proj_loss_hessian(model, location, batches, mean_samples,
     all_losses = []
     for inputs, _ in _limited_batches(batches, proj_samples or dim ** 2):
         with torch.no_grad():
-            outputs, activations = location.forward(model, inputs, before=before)
-        projections = torch.randn(inputs.shape[0], activations.shape[1]).to(mean.device)
-        projections /= torch.sqrt(torch.sum(projections * projections, dim=-1, keepdim=True))
-
-        def project_activations(acts):
-            expanded_projs = projections
-            expanded_mean = mean
-            while len(expanded_projs.shape) < len(acts.shape):
-                expanded_projs = expanded_projs[..., None]
-                expanded_mean = expanded_mean[..., None]
-            acts = acts - expanded_mean
-            acts = acts - expanded_projs * torch.sum(expanded_projs * acts, dim=1, keepdim=True)
-            acts = acts + expanded_mean
-            return acts
-
-        with torch.no_grad():
-            new_outputs, _ = location.forward(model, inputs,
-                                              before=before,
-                                              modify=project_activations)
-        losses = loss_fn(outputs, new_outputs)
+            outputs, _ = location.forward(model, inputs, before=before)
+            projections = torch.randn(inputs.shape[0], dim).to(mean.device)
+            projections /= torch.sqrt(torch.sum(projections * projections, dim=-1, keepdim=True))
+            new_outputs = _projected_forward(location, model, inputs, mean, projections, before)
+            losses = loss_fn(outputs, new_outputs)
         all_projections.extend(projections.detach().cpu().numpy())
         all_losses.extend(losses.detach().cpu().numpy())
 
@@ -190,32 +176,8 @@ def proj_loss_hessian_local(model, location, batches, mean_samples,
         projections /= torch.sqrt(torch.sum(projections * projections, dim=-1, keepdim=True))
         zero_projections = torch.zeros_like(projections).requires_grad_(True)
 
-        def project_activations(acts):
-            expanded_zeros = zero_projections
-            expanded_projs = projections
-            expanded_mean = mean
-            while len(expanded_projs.shape) < len(acts.shape):
-                expanded_zeros = expanded_zeros[..., None]
-                expanded_projs = expanded_projs[..., None]
-                expanded_mean = expanded_mean[..., None]
-            acts = acts - expanded_mean
-
-            # Ideally we would not need expanded_projs, and
-            # use expanded_zeros instead, but it results in
-            # zero Hessian-vector products.
-            #
-            # I experimented with this term instead, but it
-            # was worse on a pre-trained MNIST model:
-            #
-            #     term = expanded_zeros * torch.sum(expanded_projs * acts, dim=1, keepdim=True)
-            #
-            term = expanded_projs * torch.sum(expanded_zeros * acts, dim=1, keepdim=True)
-            acts = acts - term
-
-            acts = acts + expanded_mean
-            return acts
-
-        outputs, _ = location.forward(model, inputs, before=before, modify=project_activations)
+        outputs = _projected_forward(location, model, inputs, mean, projections, before,
+                                     dot_directions=zero_projections)
         losses = loss_fn(outputs.detach(), outputs)
 
         grads = torch.autograd.grad(torch.sum(losses), zero_projections, create_graph=True)[0]
@@ -259,3 +221,81 @@ def _limited_batches(batches, target):
         count += inputs.shape[0]
         if count >= target:
             break
+
+
+def _projected_forward(location, model, inputs, mean, directions, before, dot_directions=None):
+    if dot_directions is None:
+        dot_directions = directions
+    if before and isinstance(location.get_module(model), nn.Conv2d):
+        return _projected_forward_expanded(location,
+                                           model,
+                                           inputs,
+                                           mean,
+                                           directions,
+                                           dot_directions)
+    return _projected_forward_simple(location,
+                                     model,
+                                     inputs,
+                                     mean,
+                                     directions,
+                                     dot_directions,
+                                     before)
+
+
+def _projected_forward_simple(location, model, inputs, mean, directions, dot_directions, before):
+    def project_activations(acts):
+        expanded_dots = dot_directions
+        expanded_dirs = directions
+        expanded_mean = mean
+        while len(expanded_dirs.shape) < len(acts.shape):
+            expanded_dots = expanded_dots[..., None]
+            expanded_dirs = expanded_dirs[..., None]
+            expanded_mean = expanded_mean[..., None]
+        acts = acts - expanded_mean
+        term = expanded_dirs * torch.sum(expanded_dots * acts, dim=1, keepdim=True)
+        acts = acts - term
+        acts = acts + expanded_mean
+        return acts
+
+    outputs, _ = location.forward(model, inputs, before=before, modify=project_activations)
+    return outputs
+
+
+def _projected_forward_expanded(location, model, inputs, mean, directions, dot_directions):
+    module = location.get_module(model)
+    backup = module.forward
+
+    def new_forward(x):
+        with torch.no_grad():
+            # Hack to avoid doing some integer arithmetic.
+            out_shape = backup(x[:1]).shape[1:]
+
+        patches = F.unfold(x, module.kernel_size,
+                           dilation=module.dilation,
+                           padding=module.padding,
+                           stride=module.stride)
+
+        expanded_dots = dot_directions[..., None]
+        expanded_dirs = directions[..., None]
+        expanded_mean = mean[..., None]
+
+        patches = patches - expanded_mean
+        term = expanded_dirs * torch.sum(expanded_dots * patches, dim=1, keepdim=True)
+        patches = patches - term
+        patches = patches + expanded_mean
+
+        packed = patches.permute(0, 2, 1).contiguous().view(-1, patches.shape[1])
+        outputs = torch.matmul(packed, module.weight.view(
+            module.out_channels, -1).transpose(1, 0))
+        outputs = outputs.view(patches.shape[0], patches.shape[2], -1)
+        outputs = outputs.permute(0, 2, 1).contiguous().view(-1, *out_shape)
+
+        if module.bias is not None:
+            outputs = outputs + module.bias[..., None, None]
+        return outputs
+
+    try:
+        module.forward = new_forward
+        return model(inputs)
+    finally:
+        module.forward = backup
