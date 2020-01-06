@@ -136,6 +136,7 @@ def main_worker(args):
 
     model.eval()
     locations = AttributeLayerLocation.module_locations(model)[::-1]
+    locations = [x for x in locations if x.get_module(model).stride == (1, 1)]
     dims = [int(DIM_REDUCTION * location.get_module(model).weight.shape[0])
             for location in locations]
     changed = True
