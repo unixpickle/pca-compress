@@ -20,7 +20,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
-from pca_compress import AttributeLayerLocation, project_module_stats
+from pca_compress import AttributeLayerLocation, project_module_hessian
 
 STATISTICS_BATCHES = 64
 DIM_REDUCTION = 0.5
@@ -134,17 +134,27 @@ def main_worker(args):
 
     criterion = nn.CrossEntropyLoss().cuda()
 
-    for location in AttributeLayerLocation.module_locations(model):
-        print('Reducing dimensionality of layer: %s ...' % location.name)
+    model.eval()
+    locations = AttributeLayerLocation.module_locations(model)[::-1]
+    dims = [int(DIM_REDUCTION * location.get_module(model).weight.shape[0])
+            for location in locations]
+    changed = True
+    while changed:
+        changed = False
+        for i, location in enumerate(locations):
+            source_dim = location.get_module(model).weight.shape[0]
+            target_dim = max(dims[i], int(source_dim - 1))
+            if source_dim == target_dim:
+                break
+            changed = True
+            print('Reducing dimensionality of layer: %s (%d -> %d)...' % (str(location), source_dim, target_dim))
 
-        def load_data():
-            for i, (img, target) in enumerate(train_loader):
-                yield img.cuda(), target.cuda()
-                if i == STATISTICS_BATCHES or args.resume:
-                    break
-        dim = location.get_module(model).weight.shape[0]
-        project_module_stats(model, location, load_data(), int(dim * DIM_REDUCTION),
-                             loss_fn=criterion)
+            def load_data():
+                while True:
+                    for i, (img, target) in enumerate(train_loader):
+                        yield img.cuda(), target.cuda()
+            locations[i] = project_module_hessian(model, location, load_data(), 1024, target_dim,
+                                   proj_samples=30000, rounds=1000, local=True)
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,

@@ -47,7 +47,7 @@ def project_module_stats(model, location, batches, dim, loss_fn=None, greedy=Fal
             # projection will increase the loss.
             sigmas = -torch.sum(basis * torch.matmul(aj, basis), dim=0)
         basis = basis.permute(1, 0).contiguous()
-    return _project_module_basis(model, location, dim, mean, basis, sigmas)
+    return _project_module_basis(model, location, dim, mean, basis, sigmas, before)
 
 
 def project_module_hessian(model, location, batches, mean_samples, dim,
@@ -107,14 +107,14 @@ def project_module_eigen(model, location, dim, mean, matrix, before=False):
     """
     basis, sigmas, _ = torch.svd(matrix)
     basis = basis.permute(1, 0).contiguous()
-    return _project_module_basis(model, location, dim, mean, basis, sigmas)
+    return _project_module_basis(model, location, dim, mean, basis, sigmas, before)
 
 
-def _project_module_basis(model, location, dim, mean, basis, sigmas):
+def _project_module_basis(model, location, dim, mean, basis, sigmas, before):
     indexed_sigmas = enumerate(sigmas.detach().cpu().numpy())
     sorted_sigmas = sorted(indexed_sigmas, key=lambda x: x[1], reverse=True)
     major_indices = [x[0] for x in sorted_sigmas[:dim]]
     major_basis = basis[major_indices]
     old_module = location.get_module(model)
-    new_module = wrap_module_projection(old_module, major_basis, mean)
+    new_module = wrap_module_projection(old_module, major_basis, mean, before=before)
     return inject_module(location, model, new_module)

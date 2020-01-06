@@ -125,7 +125,6 @@ def main():
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
     model = Net().to(device)
-
     model.eval()
 
     locations = [AttributeLayerLocation(x) for x in ['conv1', 'conv2', 'fc1']]
