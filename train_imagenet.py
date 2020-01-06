@@ -147,14 +147,15 @@ def main_worker(args):
             if source_dim == target_dim:
                 break
             changed = True
-            print('Reducing dimensionality of layer: %s (%d -> %d)...' % (str(location), source_dim, target_dim))
+            print('Reducing dimensionality of layer: %s (%d -> %d)...' %
+                  (str(location), source_dim, target_dim))
 
             def load_data():
                 while True:
                     for i, (img, target) in enumerate(train_loader):
                         yield img.cuda(), target.cuda()
             locations[i] = project_module_hessian(model, location, load_data(), 1024, target_dim,
-                                   proj_samples=30000, rounds=1000, local=True)
+                                                  proj_samples=30000, rounds=1000, local=True)
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
