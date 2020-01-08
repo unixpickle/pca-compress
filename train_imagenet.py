@@ -124,7 +124,9 @@ def prune(train_loader, model, criterion, args):
                         yield img.cuda(), target.cuda()
 
             locations[i] = project_module_hessian(model, location, load_data(), 1024, target_dim,
-                                                  proj_samples=30000, rounds=1000, local=True)
+                                                  proj_samples=args.prune_samples,
+                                                  rounds=1000,
+                                                  local=True)
 
         optimizer = torch.optim.SGD(model.parameters(), args.tune_lr,
                                     momentum=args.momentum,
@@ -276,6 +278,8 @@ def arg_parser():
                         metavar='LR', help='initial learning rate', dest='lr')
     parser.add_argument('--prune-dim', default=0.5, type=float,
                         help='target filter reduction')
+    parser.add_argument('--prune-samples', default=30000, type=int,
+                        help='samples to evaluate to prune filters')
     parser.add_argument('--prune-step', default=0.5, type=float,
                         help='filter reduction per pruning iteration')
     parser.add_argument('--tune-lr', default=0.0001, type=float,
